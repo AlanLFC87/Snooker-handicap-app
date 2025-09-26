@@ -193,6 +193,11 @@ FIXTURES = [
     ]},
 ]
 
+# ---------------- Health ----------------
+if st.query_params.get("health") == "1":
+    st.write("OK")
+    st.stop()
+
 # ---------------- Admin / PIN ----------------
 def is_admin_enabled() -> bool:
     return bool(st.secrets.get("ADMIN_PIN"))
@@ -265,7 +270,7 @@ def _load_from_gist_uncached() -> Optional[Dict[str, Any]]:
             payload.setdefault("players", [])
             payload.setdefault("announcement", "")
             payload.setdefault("announcements", [])
-            payload.setdefault("league_results", {})
+            payload.setdefault("league_results", {})  # <-- new
             for p in payload["players"]:
                 p.setdefault("team", "")
             return payload
@@ -286,10 +291,9 @@ def _save_to_gist(payload: Dict[str, Any]) -> bool:
         return False
 
 def _load_local() -> Optional[Dict[str, Any]]:
-    path = LOCAL_DATA_PATH
-    if os.path.exists(path):
+    if os.path.exists(LOCAL_DATA_PATH):
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(LOCAL_DATA_PATH, "r", encoding="utf-8") as f:
                 payload = json.load(f)
             if not isinstance(payload, dict): payload = {}
             payload.setdefault("players", [])
@@ -470,16 +474,14 @@ def _compute_league_table(data: Dict[str, Any]) -> pd.DataFrame:
 # ---------------- UI ----------------
 st.set_page_config(page_title="Handicap Tracker", layout="wide")
 
-# Sidebar: theme toggle + admin
 with st.sidebar:
     st.markdown("### League")
     st.markdown(f"**{LEAGUE_NAME}**")
-    hc = st.toggle("High contrast mode", key="high_contrast", value=False, help="Improves readability for some users")
     sidebar_admin()
     st.caption(f"Storage: {'Gist' if (_gist_url() and _gist_headers()) else 'Local/Session'}")
 
-# CSS polish & contrast
-base_css = """
+# CSS polish
+st.markdown("""
 <style>
 .block-container {padding-top: 3.75rem; padding-bottom: 2rem; max-width: 1100px;}
 .stTabs [role="tablist"] { margin-top: 0.75rem; }
@@ -491,19 +493,8 @@ section[data-testid="stSidebar"] { padding-top: 0.75rem; overflow:auto; }
 .badge { display:inline-block;margin:2px 4px;padding:4px 10px;border-radius:999px;font-weight:700;background:#0b3d2e;color:#e5e7eb;}
 .badge.win { background:#065f46; color:#f0fdf4; }
 .badge.loss { background:#7f1d1d; color:#fee2e2; }
-.tbl { overflow-x: auto; }
 </style>
-"""
-high_contrast_css = """
-<style>
-.card { background: #0a0a0a; border-color: #22c55e; color: #fafafa; }
-.metric { background: #111827; }
-.badge { background: #0f172a; color: #f8fafc; }
-</style>
-"""
-st.markdown(base_css, unsafe_allow_html=True)
-if st.session_state.get("high_contrast"):
-    st.markdown(high_contrast_css, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # Initialize data
 if "data" not in st.session_state:
@@ -511,8 +502,8 @@ if "data" not in st.session_state:
 data = get_data()
 
 # Tabs
-tab_home, tab_roster, tab_record, tab_player, tab_summary, tab_fixtures, tab_league, tab_import, tab_help = st.tabs(
-    ["🏠 Home", "👥 Roster", "🎯 Record", "🧑 Player", "📊 Summary", "📅 Fixtures", "🏆 League", "📥 Import/Export", "❓ Help"]
+tab_home, tab_roster, tab_record, tab_player, tab_summary, tab_fixtures, tab_league, tab_import = st.tabs(
+    ["🏠 Home", "👥 Roster", "🎯 Record", "🧑 Player", "📊 Summary", "📅 Fixtures", "🏆 League", "📥 Import/Export"]
 )
 
 with tab_home:
@@ -521,13 +512,15 @@ with tab_home:
     st.markdown("### 📣 Announcement")
     if admin_unlocked():
         new_msg = st.text_area("Edit announcement (visible to everyone):", value=data.get("announcement",""), height=100, key="ta_announce")
-        can_save = len(new_msg.strip()) >= 0
-        if st.button("Save Announcement", disabled=not can_save, key="btn_save_announce"):
+        if st.button("Save Announcement", key="btn_save_announce"):
             data["announcement"] = new_msg.strip()
             save_and_sync(True); st.rerun()
     else:
         msg = data.get("announcement","").strip()
-        st.info(msg) if msg else st.caption("No announcement yet.")
+        if msg:
+            st.info(msg)
+        else:
+            st.caption("No announcement yet.")
 
     st.markdown("### 🌟 Highlights (last 7 days)")
     hs = active_highlights(data)
@@ -535,11 +528,10 @@ with tab_home:
         for i, h in enumerate(hs[:10]):
             ts = h.get('ts','')
             dt = ts.split('T')[0] if ts else ''
-            cols = st.columns([8,2]) if admin_unlocked() else [st.container()]
             if admin_unlocked():
-                with cols[0]:
-                    st.markdown(f"- {h['msg']}  \n  _since {dt}_")
-                with cols[1]:
+                c1, c2 = st.columns([8,2])
+                with c1: st.markdown(f"- {h['msg']}  \n  _since {dt}_")
+                with c2:
                     if st.button("Remove", key=f"rm_highlight_{i}", help="Remove this highlight"):
                         if remove_highlight_by_ts(data, ts):
                             save_and_sync(True); st.rerun()
@@ -550,44 +542,10 @@ with tab_home:
 
 with tab_roster:
     st.subheader("Players")
-    # Search and team filter
-    q = st.text_input("Search players or teams", key="roster_search", placeholder="Start typing...")
     selected_teams = st.multiselect("Filter by team", TEAM_CHOICES, default=TEAM_CHOICES, key="roster_team_filter")
     view = st.radio("View", ["Cards","Table"], horizontal=True, key="roster_view")
     inline_unlock("roster")
-
-    # Form: Add/Update with inline validation & Clear
-    with st.expander("Add / Update Player", expanded=False):
-        c1, c2 = st.columns([2,1])
-        name = c1.text_input("Name (required)", key="name_add")
-        hc = c2.number_input("Season Start HC (multiples of 7)", step=7, value=0, key="hc_add")
-        tsel = st.selectbox("Team", ["(none)"] + TEAM_CHOICES, index=0, key="team_add")
-        team_value = "" if tsel == "(none)" else tsel
-
-        form_cols = st.columns([1,1,1])
-        with form_cols[0]:
-            save_disabled = (not admin_unlocked()) or (not name.strip())
-            if st.button("Save Player", disabled=save_disabled, key="btn_save_player"):
-                upsert_player(data, name.strip(), int(hc), team_value); save_and_sync(True); st.success("Player saved."); st.rerun()
-        with form_cols[1]:
-            if st.button("Clear", key="btn_clear_player"):
-                st.session_state["name_add"] = ""
-                st.session_state["hc_add"] = 0
-                st.session_state["team_add"] = "(none)"
-                st.rerun()
-        with form_cols[2]:
-            del_names = [p.get("name","") for p in data.get("players", [])]
-            del_sel = st.selectbox("Delete player", ["(choose)"]+del_names, key="del_select")
-            confirm = st.checkbox("Confirm delete", key="chk_del_confirm")
-            if st.button("Delete", disabled=(not admin_unlocked()) or (del_sel=="(choose)") or (not confirm), key="btn_delete"):
-                delete_player(data, del_sel); save_and_sync(True); st.warning(f"Deleted {del_sel}."); st.rerun()
-
-    # Data
     players = [p for p in data.get("players", []) if (p.get("team","") in selected_teams)]
-    if q:
-        ql = q.lower().strip()
-        players = [p for p in players if (ql in p.get("name","").lower() or ql in p.get("team","").lower())]
-
     if view == "Cards":
         for p in players:
             res = p.get("results", [])
@@ -603,17 +561,26 @@ with tab_roster:
   </div>
 </div>
 """, unsafe_allow_html=True)
-            # Clickable: set selection for Player tab
-            cols = st.columns([1,1,6])
-            with cols[0]:
-                if st.button("View", key=f"view_{p.get('name','')}"):
-                    st.session_state["selected_player"] = p.get("name",""); st.toast("Open the Player tab to view details.")
-            with cols[1]:
-                if st.button("Record", key=f"record_{p.get('name','')}"):
-                    st.session_state["selected_player"] = p.get("name",""); st.toast("Open the Record tab to add W/L.")
     else:
         df_r = roster_df({"players": players})
         st.dataframe(df_r, width="stretch")
+
+    with st.expander("Add / Update Player", expanded=False):
+        c1, c2 = st.columns([2,1])
+        name = c1.text_input("Name", disabled=not admin_unlocked(), key="name_add")
+        hc = c2.number_input("Season Start HC (multiples of 7)", step=7, value=0, disabled=not admin_unlocked(), key="hc_add")
+        tsel = st.selectbox("Team", ["(none)"] + TEAM_CHOICES, index=0, disabled=not admin_unlocked(), key="team_add")
+        team_value = "" if tsel == "(none)" else tsel
+        if st.button("Save Player", disabled=not admin_unlocked(), key="btn_save_player"):
+            if name:
+                upsert_player(data, name, int(hc), team_value); save_and_sync(True); st.success("Player saved."); st.rerun()
+            else:
+                st.warning("Enter a name.")
+    with st.expander("Delete Player", expanded=False):
+        names = [p.get("name","") for p in data.get("players", [])]
+        sel = st.selectbox("Select player to delete", names, disabled=not admin_unlocked(), key="sel_delete")
+        if st.button("Delete", disabled=not admin_unlocked(), key="btn_delete") and sel:
+            delete_player(data, sel); save_and_sync(True); st.warning(f"Deleted {sel}."); st.rerun()
 
 with tab_record:
     st.subheader("Record W/L")
@@ -701,21 +668,13 @@ with tab_summary:
         st.caption("Add players to see summary.")
     else:
         df = df[df["Team"].isin(selected_teams_sum)]
-        # quick stats
-        st.markdown("#### Quick stats")
-        colA, colB, colC = st.columns(3)
-        df_ = df.copy()
-        df_["Win %"] = (df_["Wins"]/df_["Games"]).fillna(0)
-        top_win = df_.sort_values("Win %", ascending=False).head(1)
-        biggest_cut = df.sort_values("Net Change").head(1)  # most negative
-        biggest_increase = df.sort_values("Net Change", ascending=False).head(1)
-        colA.write("Best Win %"); colA.dataframe(top_win[["Player","Team","Wins","Losses"]], width="stretch")
-        colB.write("Biggest Cut"); colB.dataframe(biggest_cut[["Player","Team","Net Change"]], width="stretch")
-        colC.write("Biggest Increase"); colC.dataframe(biggest_increase[["Player","Team","Net Change"]], width="stretch")
-
-        st.markdown("#### Table")
-        mode = st.radio("Sort by", ["Player","Team","Current HC","Cuts","Increases","Games"], horizontal=True, key="summary_sort")
-        df = df.sort_values(mode)
+        mode = st.radio("Sort by", ["Player","Team","Current HC","Win %","Cuts","Increases","Games"], horizontal=True, key="summary_sort")
+        if mode == "Win %":
+            df["Win %"] = (df["Wins"] / df["Games"]).fillna(0)
+            df = df.sort_values("Win %", ascending=False)
+            df["Win %"] = (df["Win %"]*100).round(1)
+        else:
+            df = df.sort_values(mode)
         st.dataframe(df, width="stretch")
 
 with tab_fixtures:
@@ -728,7 +687,7 @@ with tab_fixtures:
     show = pd.DataFrame({"Match #": [1,2,3,4], "Fixture": fx["matches"]})
     st.dataframe(show, width="stretch")
 
-# ---------------- League tab (frames-as-points with confirmations) ----------------
+# ---------------- League tab (frames-as-points) ----------------
 with tab_league:
     st.subheader("League — Frames-as-Points")
     league_results = _init_league_results(data)
@@ -749,7 +708,6 @@ with tab_league:
         league_results[week] = seeded
 
     # Input rows
-    valid_all = True
     for i, m in enumerate(league_results[week]):
         st.markdown(f"**Match {i+1}: {m['home']} vs {m['away']}**")
         c1, c2 = st.columns(2)
@@ -761,19 +719,22 @@ with tab_league:
         total = int(hf) + int(af)
         if total != 4:
             st.error("Total frames must be 4 (valid results: 4–0, 3–1, 2–2, 1–3, 0–4).")
-            valid_all = False
         else:
             st.caption(f"Result: **{m['home']} {int(hf)}–{int(af)} {m['away']}**")
         m["hf"], m["af"] = int(hf), int(af)
         st.divider()
 
     csave, cclear = st.columns([1,1])
-    confirm_save = csave.checkbox("Confirm save", key=f"lg_confirm_save_{week}")
-    if csave.button("💾 Save week results", disabled=(not admin_unlocked()) or (not valid_all) or (not confirm_save), key=f"lg_save_{week}"):
-        save_and_sync(True); st.success("Week saved."); st.rerun()
+    if csave.button("💾 Save week results", disabled=not admin_unlocked(), key=f"lg_save_{week}"):
+        invalid = [m for m in league_results[week] if (m["hf"] is None or m["af"] is None or (m["hf"] + m["af"] != 4))]
+        if invalid:
+            st.error("Cannot save: every match must total 4 frames.")
+        else:
+            save_and_sync(True)
+            st.success("Week saved.")
+            st.rerun()
 
-    confirm_clear = cclear.checkbox("Confirm clear", key=f"lg_confirm_clear_{week}")
-    if cclear.button("🗑 Clear week results", disabled=(not admin_unlocked()) or (not confirm_clear), key=f"lg_clear_{week}"):
+    if cclear.button("🗑 Clear week results", disabled=not admin_unlocked(), key=f"lg_clear_{week}"):
         reset = []
         for s in fx["matches"]:
             h, a = _parse_match(s)
@@ -788,55 +749,7 @@ with tab_league:
     st.dataframe(df_table, width="stretch")
 
 with tab_import:
-    st.subheader("Import / Export")
-    st.download_button("⬇️ Download JSON backup", data=json.dumps(get_data(), indent=2), file_name="league_backup.json", mime="application/json", key="dl_json")
+    st.subheader("Export / Backup")
+    st.download_button("Download JSON backup", data=json.dumps(get_data(), indent=2), file_name="league_backup.json", mime="application/json", key="dl_json")
     df = roster_df(data)
-    st.download_button("⬇️ Download Summary CSV", data=df.to_csv(index=False).encode("utf-8"), file_name="summary.csv", mime="text/csv", key="dl_csv")
-
-    st.markdown("#### Import JSON")
-    inline_unlock("import")
-    up = st.file_uploader("Choose a JSON backup exported from this app", type=["json"], accept_multiple_files=False, key="upload_json")
-    if up and admin_unlocked():
-        try:
-            payload = json.load(up)
-            if isinstance(payload, dict):
-                # basic shape fixups
-                payload.setdefault("players", [])
-                payload.setdefault("announcement", "")
-                payload.setdefault("announcements", [])
-                payload.setdefault("league_results", {})
-                for p in payload["players"]:
-                    p.setdefault("team","")
-                st.success("File parsed. Click 'Apply Import' to overwrite current data.")
-                if st.button("Apply Import", key="btn_apply_import"):
-                    st.session_state["data"] = payload
-                    save_and_sync(True)
-                    st.success("Import applied.")
-                    st.rerun()
-            else:
-                st.error("Invalid file: top-level JSON must be an object.")
-        except Exception as e:
-            st.error(f"Failed to parse JSON: {e}")
-
-with tab_help:
-    st.subheader("About & Help")
-    st.markdown("""
-**What is this?**  
-Snooker handicap tracker for the **Belfast District Snooker League**. Handicaps adjust in a **rolling 4-game window**:  
-- **Cut -7** if a player wins **3 or 4** of the last 4.  
-- **Increase +7** if a player loses **3 or 4** of the last 4.  
-- **No change** at 2–2.  
-Once adjusted, the next possible change is after a **minimum of 4 more games**. Max games per player: **28**.
-
-**Tabs**  
-- **Roster**: manage players (name, start handicap, team). Search and filter by team.  
-- **Record**: add W/L per player; timeline highlights the last 4-game window that triggered a change.  
-- **Player**: detailed stats per player.  
-- **Summary**: overview table + quick stats.  
-- **Fixtures**: published league fixtures by week.  
-- **League**: enter weekly **team results** where **frames = points** (e.g., 3–1 ⇒ 3 pts / 1 pt). Auto league table.  
-- **Import/Export**: backup and restore data.  
-
-**Admin PIN**  
-Add `ADMIN_PIN` in Streamlit secrets to restrict editing. Unlock via the sidebar to enable save/clear/delete actions.
-""")
+    st.download_button("Download Summary CSV", data=df.to_csv(index=False).encode("utf-8"), file_name="summary.csv", mime="text/csv", key="dl_csv")
