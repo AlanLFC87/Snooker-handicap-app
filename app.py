@@ -34,7 +34,7 @@ def sidebar_admin():
         return
     if admin_unlocked():
         st.success("Admin mode unlocked")
-        if st.button("Lock Admin", key="btn_lock_admin", help="Lock admin mode") :
+        if st.button("Lock Admin", key="btn_lock_admin", help="Lock admin mode"):
             set_unlocked(False); st.rerun()
         return
     pin = st.text_input("Enter admin PIN", type="password", key="sidebar_pin")
@@ -224,6 +224,13 @@ def active_highlights(data):
     out.sort(key=lambda x: x.get("ts",""), reverse=True)
     return out
 
+def remove_highlight_by_ts(data, ts_str: str) -> bool:
+    """Remove highlight by its exact timestamp string; return True if removed."""
+    arr = data.get("announcements", [])
+    before = len(arr)
+    data["announcements"] = [a for a in arr if a.get("ts") != ts_str]
+    return len(data["announcements"]) < before
+
 # ---------------- UI ----------------
 st.set_page_config(page_title="Handicap Tracker", layout="wide")
 
@@ -272,13 +279,12 @@ with tab_home:
     st.caption("Snooker handicap tracker with rolling 4-game adjustments.")
     st.markdown("### 📣 Announcement")
     if admin_unlocked():
-        new_msg = st.text_area("Edit announcement (visible to everyone):", value=data.get("announcement",""), height=100)
+        new_msg = st.text_area("Edit announcement (visible to everyone):", value=data.get("announcement",""), height=100, key="ta_announce")
         if st.button("Save Announcement", key="btn_save_announce"):
             data["announcement"] = new_msg.strip()
             save_and_sync(True); st.rerun()
     else:
         msg = data.get("announcement","").strip()
-        # Avoid inline expression that returns a DeltaGenerator (which Streamlit may echo)
         if msg:
             st.info(msg)
         else:
@@ -286,9 +292,20 @@ with tab_home:
     st.markdown("### 🌟 Highlights (last 7 days)")
     hs = active_highlights(data)
     if hs:
-        for h in hs[:10]:
-            dt = h.get('ts','').split('T')[0]
-            st.markdown(f"- {h['msg']}  \n  _since {dt}_")
+        for i, h in enumerate(hs[:10]):
+            ts = h.get('ts','')
+            dt = ts.split('T')[0] if ts else ''
+            cols = st.columns([8,2]) if admin_unlocked() else [None]
+            text = f"- {h['msg']}  \n  _since {dt}_"
+            if admin_unlocked():
+                with cols[0]:
+                    st.markdown(text)
+                with cols[1]:
+                    if st.button("Remove", key=f"rm_highlight_{i}", help="Remove this highlight"):
+                        if remove_highlight_by_ts(data, ts):
+                            save_and_sync(True); st.rerun()
+            else:
+                st.markdown(text)
     else:
         st.caption("No recent highlights.")
     st.divider()
@@ -432,7 +449,10 @@ with tab_player:
             change = adj_map.get(i, 0); cur_hc += change
             rows.append({"Game #": i+1, "Result": r, "Adj": change, "HC After": cur_hc})
         df = pd.DataFrame(rows)
-        st.dataframe(df) if not df.empty else st.caption("No games yet.")
+        if not df.empty:
+            st.dataframe(df)
+        else:
+            st.caption("No games yet.")
 
 with tab_summary:
     st.subheader("Summary")
