@@ -335,11 +335,7 @@ with tab_roster:
   </div>
 </div>
 """, unsafe_allow_html=True)
-            c1, c2 = st.columns(2)
-            if c1.button("🎯 Record", key=f"rec_{p['name']}"):
-                st.session_state["selected_player"] = p['name']; st.rerun()
-            if c2.button("📊 Detail", key=f"det_{p['name']}"):
-                st.session_state["selected_player"] = p['name']; st.session_state["jump_player"] = True; st.rerun()
+        # Buttons under cards removed per request.
     else:
         st.dataframe(roster_df(data))
 
