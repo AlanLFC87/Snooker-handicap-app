@@ -9,6 +9,40 @@ import requests
 MAX_GAMES = 28
 LOCAL_DATA_PATH = "app_data/league.json"
 
+# ------------------------ Admin PIN ------------------------
+def is_admin_enabled() -> bool:
+    return bool(st.secrets.get("ADMIN_PIN"))
+
+def admin_unlocked() -> bool:
+    return st.session_state.get("is_admin", False)
+
+def admin_gate_ui():
+    """Small UI to unlock admin actions if ADMIN_PIN is configured."""
+    if not is_admin_enabled():
+        st.caption("🔓 Admin PIN not set; editing is open. (Add ADMIN_PIN in Secrets to restrict edits.)")
+        st.session_state["is_admin"] = True  # open access
+        return
+
+    if admin_unlocked():
+        st.caption("🔐 Admin mode unlocked for this session.")
+        if st.button("Lock Admin"):
+            st.session_state["is_admin"] = False
+            st.rerun()
+        return
+
+    with st.expander("🔐 Unlock admin actions"):
+        pin = st.text_input("Enter admin PIN", type="password")
+        col_ok, col_cancel = st.columns([1,1])
+        if col_ok.button("Unlock"):
+            if pin == st.secrets.get("ADMIN_PIN"):
+                st.session_state["is_admin"] = True
+                st.success("Admin unlocked.")
+                st.rerun()
+            else:
+                st.error("Incorrect PIN.")
+        if col_cancel.button("Cancel"):
+            st.info("Admin actions remain locked.")
+
 # ------------------------ Persistence Layer ------------------------
 
 def _gist_headers():
@@ -38,8 +72,7 @@ def _load_from_gist():
             if fname.lower() == "league.json":
                 content = meta.get("content", "{}")
                 payload = json.loads(content or "{}")
-                # Ensure structure
-                if not isinstance(payload, dict) or "players" not in payload or not isinstance(payload["players"], list):
+                if not isinstance(payload, dict) or "players" not in payload:
                     payload = {"players": []}
                 return payload
         return {"players": []}
@@ -67,7 +100,7 @@ def load_data() -> Dict[str, Any]:
         try:
             with open(LOCAL_DATA_PATH, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-            if not isinstance(payload, dict) or "players" not in payload or not isinstance(payload["players"], list):
+            if not isinstance(payload, dict) or "players" not in payload:
                 payload = {"players": []}
             return payload
         except Exception:
@@ -146,7 +179,6 @@ def roster_df(data):
     if not rows:
         return pd.DataFrame(columns=cols)
     df = pd.DataFrame(rows)
-    # Make sure column exists before sort
     if "Player" in df.columns:
         df = df.sort_values(["Player"])
     return df.reset_index(drop=True)
@@ -160,6 +192,9 @@ if st.secrets.get("GITHUB_TOKEN") and st.secrets.get("GIST_ID"):
     st.caption("Storage: GitHub Gist (configured).")
 else:
     st.caption("Storage: Local file (for local runs). Configure Streamlit Secrets for cloud persistence.")
+
+# Admin gate (top of page so it's visible)
+admin_gate_ui()
 
 data = load_data()
 
@@ -177,21 +212,21 @@ with tab_roster:
 
     with st.expander("Add / Update Player", expanded=True if df.empty else False):
         c1, c2, c3 = st.columns([2,1,1])
-        name = c1.text_input("Player name")
-        start_hc = c2.number_input("Season Starting Handicap (multiples of 7)", step=7, value=0)
-        if c3.button("Save Player", use_container_width=True):
-            if name.strip():
+        name = c1.text_input("Player name", disabled=not admin_unlocked())
+        start_hc = c2.number_input("Season Starting Handicap (multiples of 7)", step=7, value=0, disabled=not admin_unlocked())
+        if c3.button("Save Player", use_container_width=True, disabled=not admin_unlocked()):
+            if name and isinstance(start_hc, (int, float)):
                 upsert_player(data, name.strip(), int(start_hc))
                 save_data(data)
                 st.success(f"Saved {name}")
             else:
-                st.warning("Enter a name.")
+                st.warning("Enter a valid name and handicap.")
 
     with st.expander("Remove Player"):
         pnames = [p.get("name","") for p in data.get("players", [])]
         if pnames:
-            to_del = st.selectbox("Select player to remove", pnames)
-            if st.button("Delete Player"):
+            to_del = st.selectbox("Select player to remove", pnames, disabled=not admin_unlocked())
+            if st.button("Delete Player", disabled=not admin_unlocked()):
                 delete_player(data, to_del)
                 save_data(data)
                 st.warning(f"Deleted {to_del}")
@@ -212,7 +247,7 @@ with tab_record:
         st.write(f"Games played: **{len(player.get('results', []))}/{MAX_GAMES}**")
 
         cA, cB, cC = st.columns(3)
-        if cA.button("Add Win (W)"):
+        if cA.button("Add Win (W)", disabled=not admin_unlocked()):
             player.setdefault("results", [])
             if len(player["results"]) < MAX_GAMES:
                 player["results"].append("W")
@@ -220,7 +255,7 @@ with tab_record:
                 st.success("Recorded W")
             else:
                 st.warning("Max 28 games reached.")
-        if cB.button("Add Loss (L)"):
+        if cB.button("Add Loss (L)", disabled=not admin_unlocked()):
             player.setdefault("results", [])
             if len(player["results"]) < MAX_GAMES:
                 player["results"].append("L")
@@ -228,7 +263,7 @@ with tab_record:
                 st.success("Recorded L")
             else:
                 st.warning("Max 28 games reached.")
-        if cC.button("Undo last game"):
+        if cC.button("Undo last game", disabled=not admin_unlocked()):
             if player.get("results"):
                 player["results"].pop()
                 save_data(data)
@@ -288,8 +323,8 @@ with tab_summary:
 with tab_import:
     st.subheader("Seed players from CSV")
     st.caption("Paste rows like:  Name, StartHC  (one per line). Example:  John Smith, -14")
-    txt = st.text_area("CSV input", height=150)
-    if st.button("Import List"):
+    txt = st.text_area("CSV input", height=150, disabled=not admin_unlocked())
+    if st.button("Import List", disabled=not admin_unlocked()):
         if txt.strip():
             lines = [ln.strip() for ln in txt.strip().splitlines() if ln.strip()] 
             added = 0
