@@ -34,11 +34,11 @@ def sidebar_admin():
         return
     if admin_unlocked():
         st.success("Admin mode unlocked")
-        if st.button("Lock Admin", width="stretch"):
+        if st.button("Lock Admin", key="btn_lock_admin", help="Lock admin mode") :
             set_unlocked(False); st.rerun()
         return
     pin = st.text_input("Enter admin PIN", type="password", key="sidebar_pin")
-    if st.button("Unlock", width="stretch", key="sidebar_unlock"):
+    if st.button("Unlock", key="sidebar_unlock"):
         if pin == st.secrets.get("ADMIN_PIN"):
             set_unlocked(True); st.success("Unlocked"); st.rerun()
         else:
@@ -53,7 +53,7 @@ def inline_unlock(suffix: str):
     with c1:
         pin = st.text_input("PIN", type="password", key=f"inline_pin_{suffix}")
     with c2:
-        if st.button("Unlock", key=f"inline_unlock_{suffix}", width="stretch"):
+        if st.button("Unlock", key=f"inline_unlock_{suffix}"):
             if pin == st.secrets.get("ADMIN_PIN"):
                 set_unlocked(True); st.success("Admin unlocked."); st.rerun()
             else:
@@ -260,8 +260,6 @@ section[data-testid="stSidebar"] h4 { margin-bottom: 0.4rem; }
 /* Touch targets */
 button[kind="primary"], button[kind="secondary"] { min-height: 40px; }
 div[data-baseweb="select"] { min-height: 40px; }
-/* Hide verbose deprecation message space */
-.block-container .stAlert:has(div:contains("use_container_width")) { display:none; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -275,12 +273,16 @@ with tab_home:
     st.markdown("### 📣 Announcement")
     if admin_unlocked():
         new_msg = st.text_area("Edit announcement (visible to everyone):", value=data.get("announcement",""), height=100)
-        if st.button("Save Announcement", width="stretch"):
+        if st.button("Save Announcement", key="btn_save_announce"):
             data["announcement"] = new_msg.strip()
             save_and_sync(True); st.rerun()
     else:
         msg = data.get("announcement","").strip()
-        st.info(msg) if msg else st.caption("No announcement yet.")
+        # Avoid inline expression that returns a DeltaGenerator (which Streamlit may echo)
+        if msg:
+            st.info(msg)
+        else:
+            st.caption("No announcement yet.")
     st.markdown("### 🌟 Highlights (last 7 days)")
     hs = active_highlights(data)
     if hs:
@@ -300,7 +302,7 @@ with tab_home:
 
 with tab_roster:
     st.subheader("Players")
-    view = st.radio("View", ["Cards","Table"], horizontal=True)
+    view = st.radio("View", ["Cards","Table"], horizontal=True, key="roster_view")
     inline_unlock("roster")
     if view == "Cards":
         for p in data.get("players", []):
@@ -317,26 +319,26 @@ with tab_roster:
 </div>
 """, unsafe_allow_html=True)
             c1, c2 = st.columns(2)
-            if c1.button("🎯 Record", key=f"rec_{p['name']}", width="stretch"):
+            if c1.button("🎯 Record", key=f"rec_{p['name']}"):
                 st.session_state["selected_player"] = p['name']; st.rerun()
-            if c2.button("📊 Detail", key=f"det_{p['name']}", width="stretch"):
+            if c2.button("📊 Detail", key=f"det_{p['name']}"):
                 st.session_state["selected_player"] = p['name']; st.session_state["jump_player"] = True; st.rerun()
     else:
-        st.dataframe(roster_df(data), width="stretch")
+        st.dataframe(roster_df(data))
 
     with st.expander("Add / Update Player", expanded=False):
         c1, c2, c3 = st.columns([2,1,1])
-        name = c1.text_input("Name", disabled=not admin_unlocked())
-        hc = c2.number_input("Season Start HC (multiples of 7)", step=7, value=0, disabled=not admin_unlocked())
-        if c3.button("Save Player", disabled=not admin_unlocked(), width="stretch"):
+        name = c1.text_input("Name", disabled=not admin_unlocked(), key="name_add")
+        hc = c2.number_input("Season Start HC (multiples of 7)", step=7, value=0, disabled=not admin_unlocked(), key="hc_add")
+        if c3.button("Save Player", disabled=not admin_unlocked(), key="btn_save_player"):
             if name:
                 upsert_player(data, name, int(hc)); save_and_sync(True); st.success("Player saved."); st.rerun()
             else:
                 st.warning("Enter a name.")
     with st.expander("Delete Player", expanded=False):
         names = [p.get("name","") for p in data.get("players", [])]
-        sel = st.selectbox("Select player to delete", names, disabled=not admin_unlocked())
-        if st.button("Delete", disabled=not admin_unlocked(), width="stretch") and sel:
+        sel = st.selectbox("Select player to delete", names, disabled=not admin_unlocked(), key="sel_delete")
+        if st.button("Delete", disabled=not admin_unlocked(), key="btn_delete") and sel:
             delete_player(data, sel); save_and_sync(True); st.warning(f"Deleted {sel}."); st.rerun()
 
 with tab_record:
@@ -349,7 +351,7 @@ with tab_record:
         default_idx = 0
         if "selected_player" in st.session_state and st.session_state["selected_player"] in names:
             default_idx = names.index(st.session_state["selected_player"])
-        sel = st.selectbox("Player", names, index=default_idx)
+        sel = st.selectbox("Player", names, index=default_idx, key="sel_record")
 
         player = next(p for p in data["players"] if p.get("name","") == sel)
         res = player.setdefault("results", [])
@@ -366,7 +368,7 @@ with tab_record:
         st.markdown(chip_html(res, last_window), unsafe_allow_html=True)
 
         b1, b2, b3 = st.columns(3)
-        if b1.button("✅ Add Win (W)", disabled=not admin_unlocked(), width="stretch"):
+        if b1.button("✅ Add Win (W)", disabled=not admin_unlocked(), key="btn_add_win"):
             if len(res) < MAX_GAMES:
                 res.append("W")
                 evald_after = evaluate_adjustments(res); save_and_sync(True)
@@ -381,7 +383,7 @@ with tab_record:
                 st.rerun()
             else:
                 st.warning("Max 28 games reached.")
-        if b2.button("❌ Add Loss (L)", disabled=not admin_unlocked(), width="stretch"):
+        if b2.button("❌ Add Loss (L)", disabled=not admin_unlocked(), key="btn_add_loss"):
             if len(res) < MAX_GAMES:
                 res.append("L")
                 evald_after = evaluate_adjustments(res); save_and_sync(True)
@@ -396,7 +398,7 @@ with tab_record:
                 st.rerun()
             else:
                 st.warning("Max 28 games reached.")
-        if b3.button("↩️ Undo last game", disabled=not admin_unlocked(), width="stretch"):
+        if b3.button("↩️ Undo last game", disabled=not admin_unlocked(), key="btn_undo"):
             if res:
                 res.pop(); save_and_sync(True); st.info("Undid last game"); st.rerun()
 
@@ -430,7 +432,7 @@ with tab_player:
             change = adj_map.get(i, 0); cur_hc += change
             rows.append({"Game #": i+1, "Result": r, "Adj": change, "HC After": cur_hc})
         df = pd.DataFrame(rows)
-        st.dataframe(df, width="stretch") if not df.empty else st.caption("No games yet.")
+        st.dataframe(df) if not df.empty else st.caption("No games yet.")
 
 with tab_summary:
     st.subheader("Summary")
@@ -438,19 +440,19 @@ with tab_summary:
     if df.empty:
         st.caption("Add players to see summary.")
     else:
-        mode = st.radio("Sort by", ["Player","Current HC","Win %","Cuts","Increases","Games"], horizontal=True)
+        mode = st.radio("Sort by", ["Player","Current HC","Win %","Cuts","Increases","Games"], horizontal=True, key="summary_sort")
         if mode == "Win %":
             df["Win %"] = (df["Wins"] / df["Games"]).fillna(0); df = df.sort_values("Win %", ascending=False); df["Win %"] = (df["Win %"]*100).round(1)
         else:
             df = df.sort_values(mode)
-        st.dataframe(df, width="stretch")
+        st.dataframe(df)
 
 with tab_import:
     st.subheader("Seed players from CSV")
     inline_unlock("import")
     st.caption("Paste rows like:  Name, StartHC  (one per line). Example:  John Smith, -14")
-    txt = st.text_area("CSV input", height=150, disabled=not admin_unlocked())
-    if st.button("Import List", disabled=not admin_unlocked(), width="stretch"):
+    txt = st.text_area("CSV input", height=150, disabled=not admin_unlocked(), key="csv_input")
+    if st.button("Import List", disabled=not admin_unlocked(), key="btn_import"):
         if txt.strip():
             lines = [ln.strip() for ln in txt.strip().splitlines() if ln.strip()]
             added = 0
@@ -467,6 +469,6 @@ with tab_import:
             save_and_sync(True); st.success(f"Imported {added} players."); st.rerun()
     st.divider()
     st.subheader("Export / Backup")
-    st.download_button("Download JSON backup", data=json.dumps(get_data(), indent=2), file_name="league_backup.json", mime="application/json", use_container_width=False)
+    st.download_button("Download JSON backup", data=json.dumps(get_data(), indent=2), file_name="league_backup.json", mime="application/json", key="dl_json")
     df = roster_df(data)
-    st.download_button("Download Summary CSV", data=df.to_csv(index=False).encode("utf-8"), file_name="summary.csv", mime="text/csv", use_container_width=False)
+    st.download_button("Download Summary CSV", data=df.to_csv(index=False).encode("utf-8"), file_name="summary.csv", mime="text/csv", key="dl_csv")
