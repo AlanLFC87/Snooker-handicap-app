@@ -5,46 +5,60 @@ from typing import List, Dict, Any
 import streamlit as st
 import pandas as pd
 import requests
+from datetime import datetime, timedelta, timezone
 
+LEAGUE_NAME = "Belfast District Snooker League"
 MAX_GAMES = 28
 LOCAL_DATA_PATH = "app_data/league.json"
 
-# ---- Ultra-light health endpoint ----
+# ---------------- Health ----------------
 if st.query_params.get("health") == "1":
     st.write("OK")
     st.stop()
 
-# ------------------------ Admin PIN ------------------------
+# ---------------- Admin / PIN ----------------
 def is_admin_enabled() -> bool:
     return bool(st.secrets.get("ADMIN_PIN"))
 
 def admin_unlocked() -> bool:
     return st.session_state.get("is_admin", False)
 
-def admin_gate_ui():
+def set_unlocked(val: bool):
+    st.session_state["is_admin"] = bool(val)
+
+def sidebar_admin():
+    st.markdown("### 🔒 Admin")
     if not is_admin_enabled():
-        st.caption("🔓 Admin PIN not set; editing is open. (Add ADMIN_PIN in Secrets to restrict edits.)")
-        st.session_state["is_admin"] = True
+        st.caption("Admin PIN not set; editing is open. (Add ADMIN_PIN in Secrets to restrict edits.)")
+        set_unlocked(True)
         return
-
     if admin_unlocked():
-        st.caption("🔐 Admin mode unlocked for this session.")
-        if st.button("Lock Admin"):
-            st.session_state["is_admin"] = False
-            st.rerun()
+        st.success("Admin mode unlocked")
+        if st.button("Lock Admin", use_container_width=True):
+            set_unlocked(False); st.rerun()
         return
+    pin = st.text_input("Enter admin PIN", type="password", key="sidebar_pin")
+    if st.button("Unlock", use_container_width=True, key="sidebar_unlock"):
+        if pin == st.secrets.get("ADMIN_PIN"):
+            set_unlocked(True); st.success("Unlocked"); st.rerun()
+        else:
+            st.error("Incorrect PIN.")
 
-    with st.expander("🔐 Unlock admin actions"):
-        pin = st.text_input("Enter admin PIN", type="password")
-        if st.button("Unlock"):
+def inline_unlock():
+    if not is_admin_enabled() or admin_unlocked():
+        return
+    st.warning("Editing is locked. Unlock to make changes.")
+    c1, c2 = st.columns([3,1])
+    with c1:
+        pin = st.text_input("PIN", type="password", key=f"inline_pin_{st.session_state.get('active_tab','')}")
+    with c2:
+        if st.button("Unlock", key=f"inline_unlock_{st.session_state.get('active_tab','')}"):
             if pin == st.secrets.get("ADMIN_PIN"):
-                st.session_state["is_admin"] = True
-                st.success("Admin unlocked.")
-                st.rerun()
+                set_unlocked(True); st.success("Admin unlocked."); st.rerun()
             else:
                 st.error("Incorrect PIN.")
 
-# ------------------------ Persistence Layer ------------------------
+# ---------------- Persistence (robust) ----------------
 def _gist_headers():
     token = st.secrets.get("GITHUB_TOKEN", None)
     if not token:
@@ -57,113 +71,112 @@ def _gist_url():
         return None
     return f"https://api.github.com/gists/{gist_id}"
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _cached_gist_json(url: str, headers: Dict[str,str]):
-    r = requests.get(url, headers=headers, timeout=15)
-    r.raise_for_status()
-    return r.json()
-
-def _load_from_gist():
-    url = _gist_url()
-    headers = _gist_headers()
+def _load_from_gist_uncached() -> Dict[str, Any] | None:
+    url = _gist_url(); headers = _gist_headers()
     if not url or not headers:
         return None
     try:
-        data = _cached_gist_json(url, headers)
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        data = r.json()
         files = data.get("files", {})
         if "league.json" in files:
             content = files["league.json"].get("content", "{}")
             payload = json.loads(content or "{}")
-            if not isinstance(payload, dict) or "players" not in payload:
-                payload = {"players": []}
+            if not isinstance(payload, dict):
+                payload = {}
+            payload.setdefault("players", [])
+            payload.setdefault("announcement", "")
+            payload.setdefault("announcements", [])
             return payload
-        return {"players": []}
+        return {"players": [], "announcement": "", "announcements": []}
     except Exception:
         return None
 
 def _save_to_gist(payload: Dict[str, Any]) -> bool:
-    url = _gist_url()
-    headers = _gist_headers()
+    url = _gist_url(); headers = _gist_headers()
     if not url or not headers:
         return False
     try:
         body = {"files": {"league.json": {"content": json.dumps(payload, indent=2)}}}
-        r = requests.patch(url, headers=headers, json=body, timeout=15)
+        r = requests.patch(url, headers=headers, json=body, timeout=25)
         r.raise_for_status()
-        _cached_gist_json.clear()  # bust cache so new data shows
         return True
     except Exception:
         return False
 
-def load_data() -> Dict[str, Any]:
-    data = _load_from_gist()
-    if data is not None:
-        return data
+def _load_local() -> Dict[str, Any] | None:
     if os.path.exists(LOCAL_DATA_PATH):
         try:
             with open(LOCAL_DATA_PATH, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-            if not isinstance(payload, dict) or "players" not in payload:
-                payload = {"players": []}
+            if not isinstance(payload, dict): payload = {}
+            payload.setdefault("players", [])
+            payload.setdefault("announcement", "")
+            payload.setdefault("announcements", [])
             return payload
         except Exception:
-            pass
-    return {"players": []}
+            return None
+    return None
 
-def save_data(data: Dict[str, Any]) -> None:
-    if not _save_to_gist(data):
+def _save_local(payload: Dict[str, Any]) -> bool:
+    try:
         os.makedirs(os.path.dirname(LOCAL_DATA_PATH), exist_ok=True)
         with open(LOCAL_DATA_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+            json.dump(payload, f, indent=2)
+        return True
+    except Exception:
+        return False
 
-# ------------------------ Domain Logic ------------------------
+def init_session_data():
+    if "data" in st.session_state:
+        return
+    data = _load_from_gist_uncached() or _load_local() or {"players": [], "announcement": "", "announcements": []}
+    st.session_state["data"] = data
+    st.session_state["storage_mode"] = "gist" if (_gist_url() and _gist_headers()) else ("local" if _load_local() is not None else "memory")
+
+def get_data() -> Dict[str, Any]:
+    return st.session_state["data"]
+
+def save_and_sync(show_toast: bool = False) -> bool:
+    payload = get_data()
+    ok = _save_to_gist(payload)
+    if not ok:
+        _save_local(payload)
+    if show_toast:
+        if ok: st.caption("💾 Saved")
+        else: st.warning("Saved (cloud failed)")
+    return ok
+
+# ---------------- Domain ----------------
 def upsert_player(data, name: str, start_hc: int):
-    data.setdefault("players", [])
-    for p in data["players"]:
+    for p in data.get("players", []):
         if p.get("name","").lower() == name.lower():
             p["start_hc"] = int(start_hc)
             return
-    data["players"].append({
-        "name": name,
-        "start_hc": int(start_hc),
-        "results": [],
-        "adjustments": [],
-    })
+    data["players"].append({"name": name, "start_hc": int(start_hc), "results": [], "adjustments": []})
 
 def delete_player(data, name: str):
     data["players"] = [p for p in data.get("players", []) if p.get("name","").lower() != name.lower()]
 
-def evaluate_adjustments(results: List[str]) -> Dict[str, Any]:
-    """
-    Rolling 4-game window; when an adjustment happens, the next evaluation occurs exactly
-    4 games later (i jumps by +4). Example: 'WWWWLLLL' yields -7 at game 4, +7 at game 8.
-    """
+def evaluate_adjustments(results):
     adj_events = []
     lock_until = -1
     last_window = None
     for i in range(len(results)):
-        if i < 3:
-            continue
-        # CHANGED: allow evaluation at exactly i == (prev_i + 4)
-        if i < lock_until:
-            continue
+        if i < 3: continue
+        if i < lock_until: continue
         window = results[i-3:i+1]
-        wins = window.count("W")
-        losses = window.count("L")
-        change = 0
-        if wins >= 3:
-            change = -7
-        elif losses >= 3:
-            change = +7
-        if change != 0:
+        wins = window.count("W"); losses = window.count("L")
+        change = -7 if wins >= 3 else (+7 if losses >= 3 else 0)
+        if change:
             adj_events.append({"game_index": i, "change": change})
-            # CHANGED: keep next allowed index at i+4 (blocks i+1, i+2, i+3)
             lock_until = i + 4
             last_window = (i-3, i)
     delta = sum(e["change"] for e in adj_events)
     return {"adjustments": adj_events, "delta": delta, "last_window": last_window}
 
-def current_handicap(start_hc: int, results: List[str]) -> int:
+def current_handicap(start_hc: int, results):
     return start_hc + evaluate_adjustments(results)["delta"]
 
 def roster_df(data):
@@ -183,30 +196,132 @@ def roster_df(data):
             "Net Change": cur - int(p.get("start_hc", 0)),
         })
     cols = ["Player","Season Start HC","Current HC","Games","Wins","Losses","Cuts","Increases","Net Change"]
-    if not rows:
-        return pd.DataFrame(columns=cols)
-    df = pd.DataFrame(rows)
-    return df.sort_values(["Player"]).reset_index(drop=True)
+    return pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame(columns=cols)
 
-# ------------------------ Streamlit UI ------------------------
+def chip_html(results, last_window):
+    chips = []
+    for idx, r in enumerate(results or []):
+        highlighted = last_window and last_window[0] <= idx <= last_window[1]
+        base = "display:inline-block;margin:2px 4px;padding:4px 10px;border-radius:999px;font-weight:700;"
+        color = "background:#065f46;color:#f0fdf4;" if (highlighted and r == "W") else ("background:#7f1d1d;color:#fee2e2;" if (highlighted and r == "L") else "background:#0b3d2e;color:#e5e7eb;")
+        chips.append(f"<span style='{base}{color}'>{r}</span>")
+    return " ".join(chips) if chips else "<em>No games yet</em>"
+
+def add_highlight_announcement(data, player_name: str, change: int):
+    ts = datetime.now(timezone.utc); expires = ts + timedelta(days=7)
+    msg = f"🏆 {player_name} handicap cut by 7 after strong form." if change < 0 else f"📈 {player_name} handicap increased by 7 after recent results."
+    data.setdefault("announcements", []).append({"msg": msg, "ts": ts.isoformat(), "expires": expires.isoformat()})
+
+def active_highlights(data):
+    out = []; now = datetime.now(timezone.utc)
+    for a in data.get("announcements", []):
+        try:
+            exp = datetime.fromisoformat(a.get("expires"))
+        except Exception:
+            continue
+        if exp.tzinfo is None: exp = exp.replace(tzinfo=timezone.utc)
+        if exp > now: out.append(a)
+    out.sort(key=lambda x: x.get("ts",""), reverse=True)
+    return out
+
+# ---------------- UI ----------------
 st.set_page_config(page_title="Handicap Tracker", layout="wide")
-st.title("Snooker Handicap Tracker")
 
-if st.secrets.get("GITHUB_TOKEN") and st.secrets.get("GIST_ID"):
-    st.caption("Storage: GitHub Gist (configured).")
-else:
-    st.caption("Storage: Local file (for local runs). Configure Streamlit Secrets for cloud persistence.")
+with st.sidebar:
+    st.markdown("### League")
+    st.markdown(f"**{LEAGUE_NAME}**")
+    sidebar_admin()
+    st.caption(f"Storage: {'Gist' if (_gist_url() and _gist_headers()) else 'Local/Session'}")
 
-admin_gate_ui()
-data = load_data()
+init_session_data()
+data = get_data()
 
-tab_roster, tab_record, tab_player, tab_summary, tab_import = st.tabs(
-    ["Roster", "Record Result", "Player Detail", "Summary", "Import/Export"]
+# CSS fixes: top padding for tab ribbon, sidebar spacing, mobile polish
+st.markdown("""
+<style>
+/* Increase top padding so Streamlit's system menu doesn't overlap our tabs */
+.block-container {padding-top: 3.75rem; padding-bottom: 2rem; max-width: 1100px;}
+/* Add margin above tab list just in case */
+.stTabs [role="tablist"] { margin-top: 0.75rem; }
+/* Sidebar spacing + prevent overflow on mobile */
+section[data-testid="stSidebar"] { padding-top: 0.75rem; overflow:auto; }
+section[data-testid="stSidebar"] h1, 
+section[data-testid="stSidebar"] h2, 
+section[data-testid="stSidebar"] h3, 
+section[data-testid="stSidebar"] h4 { margin-bottom: 0.4rem; }
+/* Cards and badges */
+.card { border: 1px solid #14532d; background: linear-gradient(180deg,#064e3b,#052e22); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; color: #ecfdf5;}
+.card h4 { margin: 0 0 6px 0; }
+.sub { opacity: 0.9; font-size: 0.9rem; }
+.metric { display:inline-block; margin-right:12px; padding:4px 8px; border-radius:8px; background:#0b3d2e; }
+.btn-small button { padding: 0.25rem 0.5rem !important; }
+.badge { display:inline-block;margin:2px 4px;padding:4px 10px;border-radius:999px;font-weight:700;background:#0b3d2e;color:#e5e7eb;}
+.badge.win { background:#065f46; color:#f0fdf4; }
+.badge.loss { background:#7f1d1d; color:#fee2e2; }
+/* Make select boxes and buttons a bit taller for touch */
+button[kind="primary"], button[kind="secondary"] { min-height: 40px; }
+div[data-baseweb="select"] { min-height: 40px; }
+</style>
+""", unsafe_allow_html=True)
+
+tab_home, tab_roster, tab_record, tab_player, tab_summary, tab_import = st.tabs(
+    ["🏠 Home", "👥 Roster", "🎯 Record", "🧑 Player", "📊 Summary", "📥 Import/Export"]
 )
+
+with tab_home:
+    st.markdown(f"## {LEAGUE_NAME}")
+    st.caption("Snooker handicap tracker with rolling 4-game adjustments.")
+    st.markdown("### 📣 Announcement")
+    if admin_unlocked():
+        new_msg = st.text_area("Edit announcement (visible to everyone):", value=data.get("announcement",""), height=100)
+        if st.button("Save Announcement", use_container_width=True):
+            data["announcement"] = new_msg.strip()
+            save_and_sync(True); st.rerun()
+    else:
+        msg = data.get("announcement","").strip()
+        st.info(msg) if msg else st.caption("No announcement yet.")
+    st.markdown("### 🌟 Highlights (last 7 days)")
+    hs = active_highlights(data)
+    if hs:
+        for h in hs[:10]:
+            dt = h.get('ts','').split('T')[0]
+            st.markdown(f"- {h['msg']}  \n  _since {dt}_")
+    else:
+        st.caption("No recent highlights.")
+    st.divider()
+    st.markdown("### Quick Stats")
+    df = roster_df(data)
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("Players", len(df))
+    c2.metric("Games", int(df["Games"].sum()) if not df.empty else 0)
+    c3.metric("Cuts (-7)", int(df["Cuts"].sum()) if not df.empty else 0)
+    c4.metric("Increases (+7)", int(df["Increases"].sum()) if not df.empty else 0)
 
 with tab_roster:
     st.subheader("Players")
-    st.dataframe(roster_df(data), use_container_width=True)
+    view = st.radio("View", ["Cards","Table"], horizontal=True)
+    inline_unlock()
+    if view == "Cards":
+        for p in data.get("players", []):
+            res = p.get("results", [])
+            cur = current_handicap(int(p.get("start_hc",0)), res)
+            wins = res.count("W"); losses = res.count("L")
+            st.markdown(f"""
+<div class="card">
+  <h4>{p.get('name','')}</h4>
+  <div class="sub">Start HC: <b>{int(p.get('start_hc',0))}</b> • Current HC: <b>{cur}</b> • Games: <b>{len(res)}/{MAX_GAMES}</b></div>
+  <div style="margin:6px 0;">
+    <span class="metric">W: {wins}</span> <span class="metric">L: {losses}</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            if c1.button("🎯 Record", key=f"rec_{p['name']}"):
+                st.session_state["selected_player"] = p['name']; st.rerun()
+            if c2.button("📊 Detail", key=f"det_{p['name']}"):
+                st.session_state["selected_player"] = p['name']; st.session_state["jump_player"] = True; st.rerun()
+    else:
+        st.dataframe(roster_df(data), use_container_width=True)
 
     with st.expander("Add / Update Player", expanded=False):
         c1, c2, c3 = st.columns([2,1,1])
@@ -214,102 +329,107 @@ with tab_roster:
         hc = c2.number_input("Season Start HC (multiples of 7)", step=7, value=0, disabled=not admin_unlocked())
         if c3.button("Save Player", disabled=not admin_unlocked()):
             if name:
-                upsert_player(data, name, int(hc))
-                save_data(data)
-                st.success("Player saved.")
-                st.rerun()
+                upsert_player(data, name, int(hc)); save_and_sync(True); st.success("Player saved."); st.rerun()
             else:
                 st.warning("Enter a name.")
-
     with st.expander("Delete Player", expanded=False):
         names = [p.get("name","") for p in data.get("players", [])]
         sel = st.selectbox("Select player to delete", names, disabled=not admin_unlocked())
         if st.button("Delete", disabled=not admin_unlocked()) and sel:
-            delete_player(data, sel)
-            save_data(data)
-            st.warning(f"Deleted {sel}.")
-            st.rerun()
+            delete_player(data, sel); save_and_sync(True); st.warning(f"Deleted {sel}."); st.rerun()
 
 with tab_record:
     st.subheader("Record W/L")
+    inline_unlock()
     names = [p.get("name","") for p in data.get("players", [])]
     if not names:
         st.info("Add players in the Roster tab first.")
     else:
-        sel = st.selectbox("Player", names)
+        default_idx = 0
+        if "selected_player" in st.session_state and st.session_state["selected_player"] in names:
+            default_idx = names.index(st.session_state["selected_player"])
+        sel = st.selectbox("Player", names, index=default_idx)
+
         player = next(p for p in data["players"] if p.get("name","") == sel)
+        res = player.setdefault("results", [])
+        evald_before = evaluate_adjustments(res); last_window = evald_before["last_window"]
 
-        st.write(f"Season Start HC: **{int(player.get('start_hc',0))}**")
-        st.write(f"Current HC: **{current_handicap(int(player.get('start_hc',0)), player.get('results', []))}**")
-        st.write(f"Games played: **{len(player.get('results', []))}/{MAX_GAMES}**")
+        cA, cB, cC, cD = st.columns(4)
+        cA.metric("Season Start HC", int(player.get("start_hc",0)))
+        cB.metric("Current HC", current_handicap(int(player.get("start_hc",0)), res))
+        cC.metric("Games", f"{len(res)}/{MAX_GAMES}")
+        wins = res.count("W"); losses = res.count("L")
+        cD.metric("W-L", f"{wins}-{losses}")
 
-        cA, cB, cC = st.columns(3)
-        if cA.button("Add Win (W)", disabled=not admin_unlocked()):
-            player.setdefault("results", [])
-            if len(player["results"]) < MAX_GAMES:
-                player["results"].append("W")
-                save_data(data)
-                st.success("Recorded W")
+        st.markdown("**Timeline**")
+        st.markdown(chip_html(res, last_window), unsafe_allow_html=True)
+
+        b1, b2, b3 = st.columns(3)
+        if b1.button("✅ Add Win (W)", disabled=not admin_unlocked()):
+            if len(res) < MAX_GAMES:
+                res.append("W")
+                evald_after = evaluate_adjustments(res); save_and_sync(True)
+                if evald_after["last_window"] and evald_after["last_window"] != last_window:
+                    change = evald_after["delta"] - evald_before["delta"]
+                    if change < 0:
+                        st.success("Cut applied (-7).")
+                        add_highlight_announcement(data, player.get("name",""), -7); save_and_sync(False)
+                    elif change > 0:
+                        st.warning("Increase applied (+7).")
+                        add_highlight_announcement(data, player.get("name",""), +7); save_and_sync(False)
                 st.rerun()
             else:
                 st.warning("Max 28 games reached.")
-        if cB.button("Add Loss (L)", disabled=not admin_unlocked()):
-            player.setdefault("results", [])
-            if len(player["results"]) < MAX_GAMES:
-                player["results"].append("L")
-                save_data(data)
-                st.success("Recorded L")
+        if b2.button("❌ Add Loss (L)", disabled=not admin_unlocked()):
+            if len(res) < MAX_GAMES:
+                res.append("L")
+                evald_after = evaluate_adjustments(res); save_and_sync(True)
+                if evald_after["last_window"] and evald_after["last_window"] != last_window:
+                    change = evald_after["delta"] - evald_before["delta"]
+                    if change < 0:
+                        st.success("Cut applied (-7).")
+                        add_highlight_announcement(data, player.get("name",""), -7); save_and_sync(False)
+                    elif change > 0:
+                        st.warning("Increase applied (+7).")
+                        add_highlight_announcement(data, player.get("name",""), +7); save_and_sync(False)
                 st.rerun()
             else:
                 st.warning("Max 28 games reached.")
-        if cC.button("Undo last game", disabled=not admin_unlocked()):
-            if player.get("results"):
-                player["results"].pop()
-                save_data(data)
-                st.info("Undid last game")
-                st.rerun()
-
-        details = evaluate_adjustments(player.get("results", []))
-        last_win = details["last_window"]
-        if player.get("results"):
-            st.write("Results timeline (most recent right):")
-            chips = []
-            for idx, r in enumerate(player["results"]):
-                if last_win and last_win[0] <= idx <= last_win[1]:
-                    chips.append(f":white_check_mark: **{r}**" if r=="W" else f":x: **{r}**")
-                else:
-                    chips.append(r)
-            st.write(" ".join(chips))
+        if b3.button("↩️ Undo last game", disabled=not admin_unlocked()):
+            if res:
+                res.pop(); save_and_sync(True); st.info("Undid last game"); st.rerun()
 
 with tab_player:
     names = [p.get("name","") for p in data.get("players", [])]
     if not names:
         st.info("Add players first.")
     else:
-        sel = st.selectbox("Select player", names, key="player_detail")
+        default_idx = 0
+        if "selected_player" in st.session_state and st.session_state["selected_player"] in names:
+            default_idx = names.index(st.session_state["selected_player"])
+        sel = st.selectbox("Select player", names, key="player_detail", index=default_idx)
         player = next(p for p in data["players"] if p.get("name","") == sel)
 
         st.header(sel)
-        start_hc_val = int(player.get("start_hc", 0))
-        st.write(f"Season Start HC: **{start_hc_val}**")
-        st.write(f"Current HC: **{current_handicap(start_hc_val, player.get('results', []))}**")
-
-        rows = []
-        res = player.get("results", [])
+        start_hc_val = int(player.get("start_hc", 0)); res = player.get("results", [])
         evald = evaluate_adjustments(res)
-        adjs = evald["adjustments"]
-        adj_map = {e["game_index"]: e["change"] for e in adjs}
+        m1,m2,m3,m4 = st.columns(4)
+        m1.metric("Season Start HC", start_hc_val)
+        m2.metric("Current HC", current_handicap(start_hc_val, res))
+        m3.metric("Games", f"{len(res)}/{MAX_GAMES}")
+        win_pct = (res.count("W")/len(res)*100) if res else 0.0
+        m4.metric("Win %", f"{win_pct:.1f}%")
 
+        st.markdown("#### Timeline")
+        st.markdown(chip_html(res, evald["last_window"]), unsafe_allow_html=True)
+
+        rows = []; adjs = evald["adjustments"]; adj_map = {e["game_index"]: e["change"] for e in adjs}
         cur_hc = start_hc_val
         for i, r in enumerate(res):
-            change = adj_map.get(i, 0)
-            cur_hc += change
+            change = adj_map.get(i, 0); cur_hc += change
             rows.append({"Game #": i+1, "Result": r, "Adj": change, "HC After": cur_hc})
         df = pd.DataFrame(rows)
-        if df.empty:
-            st.caption("No games yet.")
-        else:
-            st.dataframe(df, use_container_width=True)
+        st.dataframe(df, use_container_width=True) if not df.empty else st.caption("No games yet.")
 
 with tab_summary:
     st.subheader("Summary")
@@ -317,16 +437,21 @@ with tab_summary:
     if df.empty:
         st.caption("Add players to see summary.")
     else:
-        df["Win %"] = (df["Wins"] / df["Games"]).fillna(0).round(3)
+        mode = st.radio("Sort by", ["Player","Current HC","Win %","Cuts","Increases","Games"], horizontal=True)
+        if mode == "Win %":
+            df["Win %"] = (df["Wins"] / df["Games"]).fillna(0); df = df.sort_values("Win %", ascending=False); df["Win %"] = (df["Win %"]*100).round(1)
+        else:
+            df = df.sort_values(mode)
         st.dataframe(df, use_container_width=True)
 
 with tab_import:
     st.subheader("Seed players from CSV")
+    inline_unlock()
     st.caption("Paste rows like:  Name, StartHC  (one per line). Example:  John Smith, -14")
     txt = st.text_area("CSV input", height=150, disabled=not admin_unlocked())
     if st.button("Import List", disabled=not admin_unlocked()):
         if txt.strip():
-            lines = [ln.strip() for ln in txt.strip().splitlines() if ln.strip()] 
+            lines = [ln.strip() for ln in txt.strip().splitlines() if ln.strip()]
             added = 0
             for ln in lines:
                 parts = [p.strip() for p in ln.split(",")]
@@ -335,17 +460,12 @@ with tab_import:
                     try:
                         hc = int(parts[1])
                     except:
-                        try:
-                            hc = int(parts[1].replace("+",""))
-                        except:
-                            continue
-                    upsert_player(data, name, hc)
-                    added += 1
-            save_data(data)
-            st.success(f"Imported {added} players.")
-            st.rerun()
+                        try: hc = int(parts[1].replace("+",""))
+                        except: continue
+                    upsert_player(data, name, hc); added += 1
+            save_and_sync(True); st.success(f"Imported {added} players."); st.rerun()
     st.divider()
     st.subheader("Export / Backup")
-    st.download_button("Download JSON backup", data=json.dumps(load_data(), indent=2), file_name="league_backup.json", mime="application/json")
+    st.download_button("Download JSON backup", data=json.dumps(get_data(), indent=2), file_name="league_backup.json", mime="application/json")
     df = roster_df(data)
     st.download_button("Download Summary CSV", data=df.to_csv(index=False).encode("utf-8"), file_name="summary.csv", mime="text/csv")
