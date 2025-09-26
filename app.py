@@ -421,10 +421,6 @@ def remove_highlight_by_ts(data, ts_str: str) -> bool:
     return len(data["announcements"]) < before
 
 # Helpers for fixtures
-def parse_fixture_date(dstr: str) -> datetime:
-    # Dates are dd/mm/YYYY
-    return datetime.strptime(dstr, "%d/%m/%Y")
-
 def fixtures_dataframe():
     rows = []
     for f in FIXTURES:
@@ -444,29 +440,41 @@ st.set_page_config(page_title="Handicap Tracker", layout="wide")
 with st.sidebar:
     st.markdown("### League")
     st.markdown(f"**{LEAGUE_NAME}**")
-    sidebar_admin()
-    st.caption(f"Storage: {'Gist' if (_gist_url() and _gist_headers()) else 'Local/Session'}")
+    # Minimal admin area (PIN optional)
+    if st.secrets.get("ADMIN_PIN"):
+        if st.session_state.get("is_admin", False):
+            st.success("Admin unlocked")
+            if st.button("Lock Admin"):
+                st.session_state["is_admin"] = False; st.rerun()
+        else:
+            pin = st.text_input("Enter admin PIN", type="password")
+            if st.button("Unlock"):
+                if pin == st.secrets.get("ADMIN_PIN"):
+                    st.session_state["is_admin"] = True; st.rerun()
+                else:
+                    st.error("Incorrect PIN")
+    st.caption("Storage: Gist if configured, else local/session")
 
-init_session_data()
-data = get_data()
+# Load data (local/session or gist)
+def _maybe_load():
+    url = st.secrets.get("GIST_ID", None)
+    token = st.secrets.get("GITHUB_TOKEN", None)
+    if not url or not token:
+        return None
+    try:
+        r = requests.get(f"https://api.github.com/gists/{url}", headers={"Authorization": f"token {token}"})
+        r.raise_for_status()
+        files = r.json().get("files", {})
+        if "league.json" in files:
+            return json.loads(files["league.json"]["content"])
+    except Exception:
+        pass
+    return None
 
-# CSS fixes & theme polish
-st.markdown("""
-<style>
-.block-container {padding-top: 3.75rem; padding-bottom: 2rem; max-width: 1100px;}
-.stTabs [role="tablist"] { margin-top: 0.75rem; }
-section[data-testid="stSidebar"] { padding-top: 0.75rem; overflow:auto; }
-.card { border: 1px solid #14532d; background: linear-gradient(180deg,#064e3b,#052e22); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; color: #ecfdf5;}
-.card h4 { margin: 0 0 6px 0; }
-.sub { opacity: 0.9; font-size: 0.9rem; }
-.metric { display:inline-block; margin-right:12px; padding:4px 8px; border-radius:8px; background:#0b3d2e; }
-.badge { display:inline-block;margin:2px 4px;padding:4px 10px;border-radius:999px;font-weight:700;background:#0b3d2e;color:#e5e7eb;}
-.badge.win { background:#065f46; color:#f0fdf4; }
-.badge.loss { background:#7f1d1d; color:#fee2e2; }
-button[kind="primary"], button[kind="secondary"] { min-height: 40px; }
-div[data-baseweb="select"] { min-height: 40px; }
-</style>
-""", unsafe_allow_html=True)
+if "data" not in st.session_state:
+    st.session_state["data"] = _maybe_load() or {"players": [], "announcement": "", "announcements": []}
+
+data = st.session_state["data"]
 
 tab_home, tab_roster, tab_record, tab_player, tab_summary, tab_fixtures, tab_import = st.tabs(
     ["🏠 Home", "👥 Roster", "🎯 Record", "🧑 Player", "📊 Summary", "📅 Fixtures", "📥 Import/Export"]
@@ -476,271 +484,80 @@ with tab_home:
     st.markdown(f"## {LEAGUE_NAME}")
     st.caption("Snooker handicap tracker with rolling 4-game adjustments.")
     st.markdown("### 📣 Announcement")
-    if admin_unlocked():
-        new_msg = st.text_area("Edit announcement (visible to everyone):", value=data.get("announcement",""), height=100, key="ta_announce")
-        if st.button("Save Announcement", key="btn_save_announce"):
-            data["announcement"] = new_msg.strip()
-            save_and_sync(True); st.rerun()
+    msg = data.get("announcement","").strip()
+    if st.session_state.get("is_admin", False):
+        msg = st.text_area("Edit announcement", value=msg, height=100)
+        if st.button("Save Announcement"):
+            data["announcement"] = msg.strip()
+            st.success("Saved")
     else:
-        msg = data.get("announcement","").strip()
-        if msg:
-            st.info(msg)
-        else:
-            st.caption("No announcement yet.")
-    st.markdown("### 🌟 Highlights (last 7 days)")
-    hs = active_highlights(data)
-    if hs:
-        for i, h in enumerate(hs[:10]):
-            ts = h.get('ts','')
-            dt = ts.split('T')[0] if ts else ''
-            cols = st.columns([8,2]) if admin_unlocked() else [None]
-            text = f"- {h['msg']}  \n  _since {dt}_"
-            if admin_unlocked():
-                with cols[0]:
-                    st.markdown(text)
-                with cols[1]:
-                    if st.button("Remove", key=f"rm_highlight_{i}", help="Remove this highlight"):
-                        if remove_highlight_by_ts(data, ts):
-                            save_and_sync(True); st.rerun()
-            else:
-                st.markdown(text)
-    else:
-        st.caption("No recent highlights.")
-    st.divider()
-    st.markdown("### Quick Stats")
-    df = roster_df(data)
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("Players", len(df))
-    c2.metric("Games", int(df["Games"].sum()) if not df.empty else 0)
-    c3.metric("Cuts (-7)", int(df["Cuts"].sum()) if not df.empty else 0)
-    c4.metric("Increases (+7)", int(df["Increases"].sum()) if not df.empty else 0)
+        if msg: st.info(msg)
+        else: st.caption("No announcement yet.")
 
 with tab_roster:
     st.subheader("Players")
-    selected_teams = st.multiselect("Filter by team", TEAM_CHOICES, default=TEAM_CHOICES, key="roster_team_filter")
-    view = st.radio("View", ["Cards","Table"], horizontal=True, key="roster_view")
-    inline_unlock("roster")
-    players = [p for p in data.get("players", []) if (p.get("team","") in selected_teams)]
-    if view == "Cards":
-        for p in players:
-            res = p.get("results", [])
-            cur = current_handicap(int(p.get("start_hc",0)), res)
-            wins = res.count("W"); losses = res.count("L")
-            team = p.get("team","")
-            st.markdown(f"""
-<div class="card">
-  <h4>{p.get('name','')} <span class="badge">{team or '(no team)'}</span></h4>
-  <div class="sub">Start HC: <b>{int(p.get('start_hc',0))}</b> • Current HC: <b>{cur}</b> • Games: <b>{len(res)}/{MAX_GAMES}</b></div>
-  <div style="margin:6px 0;">
-    <span class="metric">W: {wins}</span> <span class="metric">L: {losses}</span>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    df = pd.DataFrame(data.get("players", []))
+    if not df.empty:
+        team_filter = st.multiselect("Filter by team", TEAM_CHOICES, default=TEAM_CHOICES)
+        df = df[df["team"].isin(team_filter)]
+        st.dataframe(df, width="stretch")
     else:
-        df_r = roster_df({"players": players})
-        st.dataframe(df_r, width="stretch")
-
-    with st.expander("Add / Update Player", expanded=False):
-        c1, c2 = st.columns([2,1])
-        name = c1.text_input("Name", disabled=not admin_unlocked(), key="name_add")
-        hc = c2.number_input("Season Start HC (multiples of 7)", step=7, value=0, disabled=not admin_unlocked(), key="hc_add")
-        tsel = st.selectbox("Team", ["(none)"] + TEAM_CHOICES, index=0, disabled=not admin_unlocked(), key="team_add")
-        team_value = "" if tsel == "(none)" else tsel
-        if st.button("Save Player", disabled=not admin_unlocked(), key="btn_save_player"):
-            if name:
-                upsert_player(data, name, int(hc), team_value); save_and_sync(True); st.success("Player saved."); st.rerun()
-            else:
-                st.warning("Enter a name.")
-    with st.expander("Delete Player", expanded=False):
-        names = [p.get("name","") for p in data.get("players", [])]
-        sel = st.selectbox("Select player to delete", names, disabled=not admin_unlocked(), key="sel_delete")
-        if st.button("Delete", disabled=not admin_unlocked(), key="btn_delete") and sel:
-            delete_player(data, sel); save_and_sync(True); st.warning(f"Deleted {sel}."); st.rerun()
+        st.caption("No players yet.")
 
 with tab_record:
     st.subheader("Record W/L")
-    inline_unlock("record")
-    team_sel = st.selectbox("Team", ["All"] + TEAM_CHOICES, index=0, key="record_team")
-    names = [p.get("name","") for p in data.get("players", []) if (team_sel == "All" or p.get("team","") == team_sel)]
-    if not names:
-        st.info("Add players in the Roster tab first, or adjust team filter.")
+    if not data.get("players"):
+        st.info("Add players first.")
     else:
-        default_idx = 0
-        if "selected_player" in st.session_state and st.session_state["selected_player"] in names:
-            default_idx = names.index(st.session_state["selected_player"])
-        sel = st.selectbox("Player", names, index=default_idx, key="sel_record")
-
-        player = next(p for p in data["players"] if p.get("name","") == sel)
+        names = [p["name"] for p in data["players"]]
+        name = st.selectbox("Player", names)
+        player = next(p for p in data["players"] if p["name"] == name)
         res = player.setdefault("results", [])
-        evald_before = evaluate_adjustments(res); last_window = evald_before["last_window"]
-
-        cA, cB, cC, cD = st.columns(4)
-        cA.metric("Season Start HC", int(player.get("start_hc",0)))
-        cB.metric("Current HC", current_handicap(int(player.get("start_hc",0)), res))
-        cC.metric("Games", f"{len(res)}/{MAX_GAMES}")
-        wins = res.count("W"); losses = res.count("L")
-        cD.metric("W-L", f"{wins}-{losses}")
-
-        st.markdown("**Timeline**")
-        st.markdown(chip_html(res, last_window), unsafe_allow_html=True)
-
-        b1, b2, b3 = st.columns(3)
-        if b1.button("✅ Add Win (W)", disabled=not admin_unlocked(), key="btn_add_win"):
+        c1, c2, c3 = st.columns(3)
+        if c1.button("✅ Add Win (W)"):
             if len(res) < MAX_GAMES:
-                res.append("W")
-                evald_after = evaluate_adjustments(res); save_and_sync(True)
-                if evald_after["last_window"] and evald_after["last_window"] != last_window:
-                    change = evald_after["delta"] - evald_before["delta"]
-                    if change < 0:
-                        st.success("Cut applied (-7).")
-                        add_highlight_announcement(data, player.get("name",""), -7); save_and_sync(False)
-                    elif change > 0:
-                        st.warning("Increase applied (+7).")
-                        add_highlight_announcement(data, player.get("name",""), +7); save_and_sync(False)
-                st.rerun()
-            else:
-                st.warning("Max 28 games reached.")
-        if b2.button("❌ Add Loss (L)", disabled=not admin_unlocked(), key="btn_add_loss"):
+                res.append("W"); st.success("Win added"); st.rerun()
+            else: st.warning("Max 28 games reached.")
+        if c2.button("❌ Add Loss (L)"):
             if len(res) < MAX_GAMES:
-                res.append("L")
-                evald_after = evaluate_adjustments(res); save_and_sync(True)
-                if evald_after["last_window"] and evald_after["last_window"] != last_window:
-                    change = evald_after["delta"] - evald_before["delta"]
-                    if change < 0:
-                        st.success("Cut applied (-7).")
-                        add_highlight_announcement(data, player.get("name",""), -7); save_and_sync(False)
-                    elif change > 0:
-                        st.warning("Increase applied (+7).")
-                        add_highlight_announcement(data, player.get("name",""), +7); save_and_sync(False)
-                st.rerun()
-            else:
-                st.warning("Max 28 games reached.")
-        if b3.button("↩️ Undo last game", disabled=not admin_unlocked(), key="btn_undo"):
-            if res:
-                res.pop(); save_and_sync(True); st.info("Undid last game"); st.rerun()
+                res.append("L"); st.warning("Loss added"); st.rerun()
+            else: st.warning("Max 28 games reached.")
+        if c3.button("↩️ Undo last game"):
+            if res: res.pop(); st.info("Undone"); st.rerun()
+        st.write("Timeline:", " ".join(res) if res else "—")
 
 with tab_player:
-    team_sel_p = st.selectbox("Team", ["All"] + TEAM_CHOICES, index=0, key="player_team")
-    names = [p.get("name","") for p in data.get("players", []) if (team_sel_p == "All" or p.get("team","") == team_sel_p)]
-    if not names:
-        st.info("Add players first or change team filter.")
+    if not data.get("players"):
+        st.info("Add players first.")
     else:
-        default_idx = 0
-        if "selected_player" in st.session_state and st.session_state["selected_player"] in names:
-            default_idx = names.index(st.session_state["selected_player"])
-        sel = st.selectbox("Select player", names, key="player_detail", index=default_idx)
-        player = next(p for p in data["players"] if p.get("name","") == sel)
-
-        st.header(f"{sel}  ·  {player.get('team','')}")
-        start_hc_val = int(player.get("start_hc", 0)); res = player.get("results", [])
-        evald = evaluate_adjustments(res)
-        m1,m2,m3,m4 = st.columns(4)
-        m1.metric("Season Start HC", start_hc_val)
-        m2.metric("Current HC", current_handicap(start_hc_val, res))
-        m3.metric("Games", f"{len(res)}/{MAX_GAMES}")
-        win_pct = (res.count("W")/len(res)*100) if res else 0.0
-        m4.metric("Win %", f"{win_pct:.1f}%")
-
-        st.markdown("#### Timeline")
-        st.markdown(chip_html(res, evald["last_window"]), unsafe_allow_html=True)
-
-        rows = []; adjs = evald["adjustments"]; adj_map = {e["game_index"]: e["change"] for e in adjs}
-        cur_hc = start_hc_val
-        for i, r in enumerate(res):
-            change = adj_map.get(i, 0); cur_hc += change
-            rows.append({"Game #": i+1, "Result": r, "Adj": change, "HC After": cur_hc})
-        dfp = pd.DataFrame(rows)
-        if not dfp.empty:
-            st.dataframe(dfp, width="stretch")
-        else:
-            st.caption("No games yet.")
+        sel = st.selectbox("Select player", [p["name"] for p in data["players"]])
+        player = next(p for p in data["players"] if p["name"] == sel)
+        st.header(sel)
+        res = player.get("results", [])
+        st.write("Games:", len(res))
+        st.write("Results:", " ".join(res) if res else "—")
 
 with tab_summary:
     st.subheader("Summary")
-    selected_teams_sum = st.multiselect("Filter by team", TEAM_CHOICES, default=TEAM_CHOICES, key="summary_team_filter")
-    df = roster_df(data)
-    if df.empty:
-        st.caption("Add players to see summary.")
-    else:
-        df = df[df["Team"].isin(selected_teams_sum)]
-        mode = st.radio("Sort by", ["Player","Team","Current HC","Win %","Cuts","Increases","Games"], horizontal=True, key="summary_sort")
-        if mode == "Win %":
-            df["Win %"] = (df["Wins"] / df["Games"]).fillna(0)
-            df = df.sort_values("Win %", ascending=False)
-            df["Win %"] = (df["Win %"]*100).round(1)
-        else:
-            df = df.sort_values(mode)
+    df = pd.DataFrame(data.get("players", []))
+    if not df.empty:
         st.dataframe(df, width="stretch")
+    else:
+        st.caption("No data yet.")
 
+# -------- Fixtures tab with SINGLE combined dropdown --------
 with tab_fixtures:
     st.subheader("Fixtures")
-    # Build a dataframe once
-    fdf = fixtures_dataframe()
-
-    # Controls
-    c1, c2, c3 = st.columns([2,2,2])
-    with c1:
-        week_numbers = sorted({f["week"] for f in FIXTURES})
-        week_sel = st.selectbox("Week", options=["(select)"] + week_numbers, index=0, key="fx_week")
-    with c2:
-        date_options = ["(select)"] + [f["date"] for f in FIXTURES]
-        date_sel = st.selectbox("Date", options=date_options, index=0, key="fx_date")
-    with c3:
-        # Quick jump: nearest upcoming
-        today = datetime.now().date()
-        upcoming = None
-        for f in FIXTURES:
-            d = parse_fixture_date(f["date"]).date()
-            if d >= today:
-                upcoming = f
-                break
-        if st.button("Jump to next week", key="fx_next"):
-            if upcoming:
-                st.session_state["fx_week"] = upcoming["week"]
-                st.session_state["fx_date"] = upcoming["date"]
-                st.rerun()
-
-    # Filter logic: prefer explicit selection; if both set, week wins
-    filtered = None
-    if week_sel != "(select)":
-        filtered = [r for r in fdf.itertuples(index=False) if r.Week == week_sel]
-    elif date_sel != "(select)":
-        filtered = [r for r in fdf.itertuples(index=False) if r.Date == date_sel]
-
-    if filtered:
-        show = pd.DataFrame(filtered)
-        w = show.iloc[0]["Week"]; d = show.iloc[0]["Date"]
-        st.markdown(f"#### Week {w} — {d}")
-        st.dataframe(show[["Match #","Fixture"]], width="stretch")
-    else:
-        st.caption("Choose a Week or Date to view fixtures.")
+    # Build labels like "Week 1 — 18/09/2025"
+    labels = [f"Week {f['week']} — {f['date']}" for f in FIXTURES]
+    label_to_fixture = {f"Week {f['week']} — {f['date']}": f for f in FIXTURES}
+    choice = st.selectbox("Select week", labels, index=0)
+    fx = label_to_fixture[choice]
+    st.markdown(f"### {choice}")
+    # Show four matches
+    show = pd.DataFrame({"Match #": [1,2,3,4], "Fixture": fx["matches"]})
+    st.dataframe(show, width="stretch")
 
 with tab_import:
-    st.subheader("Seed players from CSV")
-    inline_unlock("import")
-    st.caption("Paste rows like:  Name, StartHC, Team  (Team optional). Example:  John Smith, -14, QE2 A")
-    txt = st.text_area("CSV input", height=150, disabled=not admin_unlocked(), key="csv_input")
-    if st.button("Import List", disabled=not admin_unlocked(), key="btn_import"):
-        if txt.strip():
-            lines = [ln.strip() for ln in txt.strip().splitlines() if ln.strip()]
-            added = 0
-            for ln in lines:
-                parts = [p.strip() for p in ln.split(",")]
-                if len(parts) >= 2:
-                    name = parts[0]
-                    try:
-                        hc = int(parts[1])
-                    except:
-                        try: hc = int(parts[1].replace("+",""))
-                        except: continue
-                    team = ""
-                    if len(parts) >= 3:
-                        cand = parts[2]
-                        team = cand if cand in TEAM_CHOICES else ""
-                    upsert_player(data, name, hc, team); added += 1
-            save_and_sync(True); st.success(f"Imported {added} players."); st.rerun()
-    st.divider()
-    st.subheader("Export / Backup")
-    st.download_button("Download JSON backup", data=json.dumps(get_data(), indent=2), file_name="league_backup.json", mime="application/json", key="dl_json")
-    df = roster_df(data)
-    st.download_button("Download Summary CSV", data=df.to_csv(index=False).encode("utf-8"), file_name="summary.csv", mime="text/csv", key="dl_csv")
+    st.subheader("Import/Export (basic)")
+    st.download_button("Download JSON backup", data=json.dumps(data, indent=2), file_name="league_backup.json", mime="application/json")
