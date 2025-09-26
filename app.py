@@ -10,7 +10,6 @@ MAX_GAMES = 28
 LOCAL_DATA_PATH = "app_data/league.json"
 
 # ---- Ultra-light health endpoint ----
-# Ping: https://<your-app>.streamlit.app/?health=1
 if st.query_params.get("health") == "1":
     st.write("OK")
     st.stop()
@@ -135,13 +134,18 @@ def delete_player(data, name: str):
     data["players"] = [p for p in data.get("players", []) if p.get("name","").lower() != name.lower()]
 
 def evaluate_adjustments(results: List[str]) -> Dict[str, Any]:
+    """
+    Rolling 4-game window; when an adjustment happens, the next evaluation occurs exactly
+    4 games later (i jumps by +4). Example: 'WWWWLLLL' yields -7 at game 4, +7 at game 8.
+    """
     adj_events = []
     lock_until = -1
     last_window = None
     for i in range(len(results)):
         if i < 3:
             continue
-        if i <= lock_until:
+        # CHANGED: allow evaluation at exactly i == (prev_i + 4)
+        if i < lock_until:
             continue
         window = results[i-3:i+1]
         wins = window.count("W")
@@ -153,6 +157,7 @@ def evaluate_adjustments(results: List[str]) -> Dict[str, Any]:
             change = +7
         if change != 0:
             adj_events.append({"game_index": i, "change": change})
+            # CHANGED: keep next allowed index at i+4 (blocks i+1, i+2, i+3)
             lock_until = i + 4
             last_window = (i-3, i)
     delta = sum(e["change"] for e in adj_events)
@@ -192,16 +197,13 @@ if st.secrets.get("GITHUB_TOKEN") and st.secrets.get("GIST_ID"):
 else:
     st.caption("Storage: Local file (for local runs). Configure Streamlit Secrets for cloud persistence.")
 
-# Admin gate (top)
 admin_gate_ui()
-
 data = load_data()
 
 tab_roster, tab_record, tab_player, tab_summary, tab_import = st.tabs(
     ["Roster", "Record Result", "Player Detail", "Summary", "Import/Export"]
 )
 
-# ---- Roster tab ----
 with tab_roster:
     st.subheader("Players")
     st.dataframe(roster_df(data), use_container_width=True)
@@ -228,7 +230,6 @@ with tab_roster:
             st.warning(f"Deleted {sel}.")
             st.rerun()
 
-# ---- Record tab ----
 with tab_record:
     st.subheader("Record W/L")
     names = [p.get("name","") for p in data.get("players", [])]
@@ -280,7 +281,6 @@ with tab_record:
                     chips.append(r)
             st.write(" ".join(chips))
 
-# ---- Player Detail tab ----
 with tab_player:
     names = [p.get("name","") for p in data.get("players", [])]
     if not names:
@@ -311,7 +311,6 @@ with tab_player:
         else:
             st.dataframe(df, use_container_width=True)
 
-# ---- Summary tab ----
 with tab_summary:
     st.subheader("Summary")
     df = roster_df(data)
@@ -321,7 +320,6 @@ with tab_summary:
         df["Win %"] = (df["Wins"] / df["Games"]).fillna(0).round(3)
         st.dataframe(df, use_container_width=True)
 
-# ---- Import/Export tab ----
 with tab_import:
     st.subheader("Seed players from CSV")
     st.caption("Paste rows like:  Name, StartHC  (one per line). Example:  John Smith, -14")
