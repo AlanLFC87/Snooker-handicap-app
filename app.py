@@ -1,11 +1,10 @@
 
 import json
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timedelta, timezone
 
 # ------------------------ Constants ------------------------
 LEAGUE_NAME = "Belfast District Snooker League"
@@ -13,6 +12,7 @@ MAX_GAMES = 28
 LOCAL_DATA_PATH = "app_data/league.json"
 
 # ------------------------ Health Endpoint ------------------------
+# Ping: https://<your-app>.streamlit.app/?health=1
 if st.query_params.get("health") == "1":
     st.write("OK")
     st.stop()
@@ -25,7 +25,7 @@ def admin_unlocked() -> bool:
     return st.session_state.get("is_admin", False)
 
 def admin_gate_ui():
-    st.markdown("##### 🔒 Admin")
+    st.markdown(f"##### 🔒 Admin")
     if not is_admin_enabled():
         st.caption("Admin PIN not set; editing is open. (Add ADMIN_PIN in Secrets to restrict edits.)")
         st.session_state["is_admin"] = True
@@ -81,9 +81,8 @@ def _load_from_gist():
                 payload = {}
             payload.setdefault("players", [])
             payload.setdefault("announcement", "")
-            payload.setdefault("announcements", [])  # auto highlights: [{msg, ts, expires}]
             return payload
-        return {"players": [], "announcement": "", "announcements": []}
+        return {"players": [], "announcement": ""}
     except Exception:
         return None
 
@@ -96,7 +95,7 @@ def _save_to_gist(payload: Dict[str, Any]) -> bool:
         body = {"files": {"league.json": {"content": json.dumps(payload, indent=2)}}}
         r = requests.patch(url, headers=headers, json=body, timeout=15)
         r.raise_for_status()
-        _cached_gist_json.clear()
+        _cached_gist_json.clear()  # bust cache so new data shows
         return True
     except Exception:
         return False
@@ -113,11 +112,10 @@ def load_data() -> Dict[str, Any]:
                 payload = {}
             payload.setdefault("players", [])
             payload.setdefault("announcement", "")
-            payload.setdefault("announcements", [])
             return payload
         except Exception:
             pass
-    return {"players": [], "announcement": "", "announcements": []}
+    return {"players": [], "announcement": ""}
 
 def save_data(data: Dict[str, Any]) -> None:
     if not _save_to_gist(data):
@@ -142,7 +140,7 @@ def upsert_player(data, name: str, start_hc: int):
 def delete_player(data, name: str):
     data["players"] = [p for p in data.get("players", []) if p.get("name","").lower() != name.lower()]
 
-def evaluate_adjustments(results):
+def evaluate_adjustments(results: List[str]) -> Dict[str, Any]:
     """Rolling 4, reset after change; re-evaluate at exactly +4 games."""
     adj_events = []
     lock_until = -1
@@ -167,7 +165,7 @@ def evaluate_adjustments(results):
     delta = sum(e["change"] for e in adj_events)
     return {"adjustments": adj_events, "delta": delta, "last_window": last_window}
 
-def current_handicap(start_hc: int, results):
+def current_handicap(start_hc: int, results: List[str]) -> int:
     return start_hc + evaluate_adjustments(results)["delta"]
 
 def roster_df(data):
@@ -196,75 +194,22 @@ def chip_html(results, last_window):
     chips = []
     for idx, r in enumerate(results or []):
         highlighted = last_window and last_window[0] <= idx <= last_window[1]
-        base = "display:inline-block;margin:2px 4px;padding:4px 10px;border-radius:999px;font-weight:700;"
-        color = "background:#065f46;color:#f0fdf4;" if (highlighted and r == "W") else ("background:#7f1d1d;color:#fee2e2;" if (highlighted and r == "L") else "background:#0b3d2e;color:#e5e7eb;")
+        base = "display:inline-block;margin:2px 4px;padding:2px 8px;border-radius:999px;font-weight:600;"
+        color = "background:#14532d;" if (highlighted and r == "W") else ("background:#7f1d1d;" if (highlighted and r == "L") else "background:#1f2937;")
         chips.append(f"<span style='{base}{color}'>{r}</span>")
     return " ".join(chips) if chips else "<em>No games yet</em>"
 
-from datetime import datetime, timedelta, timezone
-
-def add_highlight_announcement(data, player_name: str, change: int):
-    ts = datetime.now(timezone.utc)
-    expires = ts + timedelta(days=7)
-    if change < 0:
-        msg = f"🏆 {player_name} handicap cut by 7 after strong form."
-    else:
-        msg = f"📈 {player_name} handicap increased by 7 after recent results."
-    data.setdefault("announcements", []).append({
-        "msg": msg,
-        "ts": ts.isoformat(),
-        "expires": expires.isoformat(),
-    })
-
-def active_highlights(data):
-    out = []
-    now = datetime.now(timezone.utc)
-    for a in data.get("announcements", []):
-        try:
-            exp = datetime.fromisoformat(a.get("expires"))
-        except Exception:
-            continue
-        if exp.tzinfo is None:
-            exp = exp.replace(tzinfo=timezone.utc)
-        if exp > now:
-            out.append(a)
-    out.sort(key=lambda x: x.get("ts",""), reverse=True)
-    return out
-
-# ------------------------ Page Setup ------------------------
+# ------------------------ UI ------------------------
 st.set_page_config(page_title="Handicap Tracker", layout="wide")
 
 # Sidebar admin controls
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Snooker_table.svg/320px-Snooker_table.svg.png", use_column_width=True)
     st.header("League")
     st.subheader(LEAGUE_NAME)
     st.divider()
     admin_gate_ui()
 
 data = load_data()
-
-# Custom CSS for mobile & cards
-st.markdown("""
-<style>
-.block-container {padding-top: 1rem; padding-bottom: 2rem; max-width: 1100px;}
-.card {
-  border: 1px solid #14532d;
-  background: linear-gradient(180deg,#064e3b,#052e22);
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin-bottom: 10px;
-  color: #ecfdf5;
-}
-.card h4 { margin: 0 0 6px 0; }
-.sub { opacity: 0.9; font-size: 0.9rem; }
-.metric { display:inline-block; margin-right:12px; padding:4px 8px; border-radius:8px; background:#0b3d2e; }
-.btn-small button { padding: 0.25rem 0.5rem !important; }
-.badge { display:inline-block;margin:2px 4px;padding:4px 10px;border-radius:999px;font-weight:700;background:#0b3d2e;color:#e5e7eb;}
-.badge.win { background:#065f46; color:#f0fdf4; }
-.badge.loss { background:#7f1d1d; color:#fee2e2; }
-</style>
-""", unsafe_allow_html=True)
 
 # Tabs
 tab_home, tab_roster, tab_record, tab_player, tab_summary, tab_import = st.tabs(
@@ -276,10 +221,10 @@ with tab_home:
     st.markdown(f"## {LEAGUE_NAME}")
     st.caption("Snooker handicap tracker with rolling 4-game adjustments.")
 
-    # Manual single announcement
+    # Announcement (single message)
     st.markdown("### 📣 Announcement")
     if admin_unlocked():
-        new_msg = st.text_area("Edit announcement (visible to everyone):", value=data.get("announcement",""), height=100)
+        new_msg = st.text_area("Edit announcement (visible to everyone):", value=data.get("announcement",""), height=120)
         if st.button("Save Announcement", use_container_width=True):
             data["announcement"] = new_msg.strip()
             save_data(data)
@@ -292,16 +237,6 @@ with tab_home:
         else:
             st.caption("No announcement yet.")
 
-    # Auto highlights (last 7 days)
-    highlights = active_highlights(data)
-    st.markdown("### 🌟 Highlights (last 7 days)")
-    if highlights:
-        for h in highlights[:10]:
-            dt = h.get('ts','').split('T')[0]
-            st.markdown(f"- {h['msg']}  \n  _since {dt}_")
-    else:
-        st.caption("No recent highlights.")
-
     st.divider()
     st.markdown("### Quick Stats")
     df = roster_df(data)
@@ -311,41 +246,14 @@ with tab_home:
     total_incs = int(df["Increases"].sum()) if not df.empty else 0
     c1,c2,c3,c4 = st.columns(4)
     c1.metric("Players", total_players)
-    c2.metric("Games", total_games)
+    c2.metric("Games Recorded", total_games)
     c3.metric("Cuts (-7)", total_cuts)
     c4.metric("Increases (+7)", total_incs)
 
-# ---- Roster (cards) ----
+# ---- Roster ----
 with tab_roster:
     st.subheader("Players")
-    view = st.radio("View", ["Cards","Table"], horizontal=True)
-    players = data.get("players", [])
-    if view == "Cards":
-        for p in players:
-            res = p.get("results", [])
-            cur = current_handicap(int(p.get("start_hc",0)), res)
-            wins = res.count("W"); losses = res.count("L")
-            st.markdown(f"""
-<div class="card">
-  <h4>{p.get('name','')}</h4>
-  <div class="sub">Start HC: <b>{int(p.get('start_hc',0))}</b> • Current HC: <b>{cur}</b> • Games: <b>{len(res)}/{MAX_GAMES}</b></div>
-  <div style="margin:6px 0;">
-    <span class="metric">W: {wins}</span> <span class="metric">L: {losses}</span>
-  </div>
-  <div class="btn-small">
-</div></div>
-""", unsafe_allow_html=True)
-            c1, c2 = st.columns(2)
-            if c1.button("🎯 Record", key=f"rec_{p['name']}"):
-                st.session_state["selected_player"] = p['name']
-                st.session_state["active_tab"] = "record"
-                st.rerun()
-            if c2.button("📊 Detail", key=f"det_{p['name']}"):
-                st.session_state["selected_player"] = p['name']
-                st.session_state["active_tab"] = "player"
-                st.rerun()
-    else:
-        st.dataframe(roster_df(data), use_container_width=True)
+    st.dataframe(roster_df(data), use_container_width=True)
 
     with st.expander("Add / Update Player", expanded=False):
         c1, c2, c3 = st.columns([2,1,1])
@@ -376,12 +284,9 @@ with tab_record:
     if not names:
         st.info("Add players in the Roster tab first.")
     else:
-        default_idx = 0
-        if "selected_player" in st.session_state and st.session_state["selected_player"] in names:
-            default_idx = names.index(st.session_state["selected_player"])
-        sel = st.selectbox("Player", names, index=default_idx)
-
+        sel = st.selectbox("Player", names)
         player = next(p for p in data["players"] if p.get("name","") == sel)
+
         res = player.setdefault("results", [])
         evald_before = evaluate_adjustments(res)
         last_window = evald_before["last_window"]
@@ -402,16 +307,13 @@ with tab_record:
                 res.append("W")
                 evald_after = evaluate_adjustments(res)
                 save_data(data)
+                # Show toast if adjustment triggered at the last game
                 if evald_after["last_window"] and evald_after["last_window"] != last_window:
                     change = evald_after["delta"] - evald_before["delta"]
                     if change < 0:
-                        st.success("Cut applied (-7).")
-                        add_highlight_announcement(data, player.get("name",""), -7)
-                        save_data(data)
+                        st.success(f"Cut applied (-7) after 4-game window.")
                     elif change > 0:
-                        st.warning("Increase applied (+7).")
-                        add_highlight_announcement(data, player.get("name",""), +7)
-                        save_data(data)
+                        st.warning(f"Increase applied (+7) after 4-game window.")
                 st.rerun()
             else:
                 st.warning("Max 28 games reached.")
@@ -423,13 +325,9 @@ with tab_record:
                 if evald_after["last_window"] and evald_after["last_window"] != last_window:
                     change = evald_after["delta"] - evald_before["delta"]
                     if change < 0:
-                        st.success("Cut applied (-7).")
-                        add_highlight_announcement(data, player.get("name",""), -7)
-                        save_data(data)
+                        st.success(f"Cut applied (-7) after 4-game window.")
                     elif change > 0:
-                        st.warning("Increase applied (+7).")
-                        add_highlight_announcement(data, player.get("name",""), +7)
-                        save_data(data)
+                        st.warning(f"Increase applied (+7) after 4-game window.")
                 st.rerun()
             else:
                 st.warning("Max 28 games reached.")
@@ -446,10 +344,7 @@ with tab_player:
     if not names:
         st.info("Add players first.")
     else:
-        default_idx = 0
-        if "selected_player" in st.session_state and st.session_state["selected_player"] in names:
-            default_idx = names.index(st.session_state["selected_player"])
-        sel = st.selectbox("Select player", names, key="player_detail", index=default_idx)
+        sel = st.selectbox("Select player", names, key="player_detail")
         player = next(p for p in data["players"] if p.get("name","") == sel)
 
         st.header(sel)
@@ -467,6 +362,7 @@ with tab_player:
         st.markdown("#### Timeline")
         st.markdown(chip_html(res, evald["last_window"]), unsafe_allow_html=True)
 
+        # Per-game table
         rows = []
         adjs = evald["adjustments"]
         adj_map = {e["game_index"]: e["change"] for e in adjs}
