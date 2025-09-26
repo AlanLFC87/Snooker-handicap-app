@@ -12,175 +12,175 @@ TEAMS = [
     "Premier","QE2 A","QE2 B","Shorts"
 ]
 
-# ---------------- Fixtures (from 2025/26 images) ----------------
+# ---------------- Fixtures Data ----------------
 FIXTURES = [
-    {"week":1,"date":"2025-09-18","matches":[
-        ("Ballygomartin B","Ballygomartin A"),
-        ("QE2 A","QE2 B"),
-        ("Shorts","Ballygomartin C"),
-        ("East","Premier")
+    {"week": 1, "date": "18/09/2025", "matches": [
+        "Ballygomartin B v Ballygomartin A",
+        "QE2 A v QE2 B",
+        "Shorts v Ballygomartin C",
+        "East v Premier"
     ]},
-    {"week":2,"date":"2025-09-25","matches":[
-        ("QE2 A","Ballygomartin B"),
-        ("Ballygomartin A","QE2 B"),
-        ("East","Shorts"),
-        ("Premier","Ballygomartin C")
+    {"week": 2, "date": "25/09/2025", "matches": [
+        "QE2 A v Ballygomartin B",
+        "Ballygomartin A v QE2 B",
+        "East v Shorts",
+        "Premier v Ballygomartin C"
     ]},
-    {"week":3,"date":"2025-10-02","matches":[
-        ("Ballygomartin B","QE2 B"),
-        ("QE2 A","Ballygomartin A"),
-        ("Premier","Shorts"),
-        ("Ballygomartin C","East")
+    {"week": 3, "date": "02/10/2025", "matches": [
+        "Ballygomartin B v QE2 B",
+        "QE2 A v Ballygomartin A",
+        "Premier v Shorts",
+        "Ballygomartin C v East"
     ]},
-    {"week":4,"date":"2025-10-09","matches":[
-        ("Shorts","Ballygomartin B"),
-        ("Ballygomartin A","Ballygomartin C"),
-        ("East","QE2 A"),
-        ("QE2 B","Premier")
+    {"week": 4, "date": "09/10/2025", "matches": [
+        "Shorts v Ballygomartin B",
+        "Ballygomartin A v Ballygomartin C",
+        "East v QE2 A",
+        "QE2 B v Premier"
     ]},
-    {"week":5,"date":"2025-10-16","matches":[
-        ("Ballygomartin C","Ballygomartin B"),
-        ("East","Ballygomartin A"),
-        ("QE2 A","Premier"),
-        ("Shorts","QE2 B")
+    {"week": 5, "date": "16/10/2025", "matches": [
+        "Ballygomartin C v Ballygomartin B",
+        "East v Ballygomartin A",
+        "QE2 A v Premier",
+        "Shorts v QE2 B"
     ]},
-    {"week":6,"date":"2025-10-23","matches":[
-        ("Ballygomartin B","East"),
-        ("Premier","Ballygomartin A"),
-        ("Shorts","QE2 A"),
-        ("Ballygomartin C","QE2 B")
+    {"week": 6, "date": "23/10/2025", "matches": [
+        "Ballygomartin B v East",
+        "Premier v Ballygomartin A",
+        "Shorts v QE2 A",
+        "Ballygomartin C v QE2 B"
     ]},
-    {"week":7,"date":"2025-10-30","matches":[
-        ("Premier","Ballygomartin B"),
-        ("Ballygomartin A","Shorts"),
-        ("Ballygomartin C","QE2 A"),
-        ("QE2 B","East")
+    {"week": 7, "date": "30/10/2025", "matches": [
+        "Premier v Ballygomartin B",
+        "Ballygomartin A v Shorts",
+        "Ballygomartin C v QE2 A",
+        "QE2 B v East"
     ]},
-    {"week":8,"date":"2025-11-06","matches":[
-        ("Ballygomartin A","Ballygomartin B"),
-        ("QE2 B","QE2 A"),
-        ("Ballygomartin C","Shorts"),
-        ("Premier","East")
+    {"week": 8, "date": "06/11/2025", "matches": [
+        "Ballygomartin A v Ballygomartin B",
+        "QE2 B v QE2 A",
+        "Ballygomartin C v Shorts",
+        "Premier v East"
     ]},
-    {"week":9,"date":"2025-11-13","matches":[
-        ("Ballygomartin B","QE2 A"),
-        ("QE2 B","Ballygomartin A"),
-        ("Shorts","East"),
-        ("Ballygomartin C","Premier")
+    {"week": 9, "date": "13/11/2025", "matches": [
+        "Ballygomartin B v QE2 A",
+        "QE2 B v Ballygomartin A",
+        "Shorts v East",
+        "Ballygomartin C v Premier"
     ]},
-    {"week":10,"date":"2025-11-20","matches":[
-        ("QE2 B","Ballygomartin B"),
-        ("Ballygomartin A","QE2 A"),
-        ("Shorts","Premier"),
-        ("East","Ballygomartin C")
+    {"week": 10, "date": "20/11/2025", "matches": [
+        "QE2 B v Ballygomartin B",
+        "Ballygomartin A v QE2 A",
+        "Shorts v Premier",
+        "East v Ballygomartin C"
     ]},
-    {"week":11,"date":"2025-11-27","matches":[
-        ("Ballygomartin B","Shorts"),
-        ("Ballygomartin C","Ballygomartin A"),
-        ("QE2 A","East"),
-        ("Premier","QE2 B")
+    {"week": 11, "date": "27/11/2025", "matches": [
+        "Ballygomartin B v Shorts",
+        "Ballygomartin C v Ballygomartin A",
+        "QE2 A v East",
+        "Premier v QE2 B"
     ]},
-    {"week":12,"date":"2025-12-04","matches":[
-        ("Ballygomartin B","Ballygomartin C"),
-        ("Ballygomartin A","East"),
-        ("Premier","QE2 A"),
-        ("QE2 B","Shorts")
+    {"week": 12, "date": "04/12/2025", "matches": [
+        "Ballygomartin B v Ballygomartin C",
+        "Ballygomartin A v East",
+        "Premier v QE2 A",
+        "QE2 B v Shorts"
     ]},
-    {"week":13,"date":"2025-12-11","matches":[
-        ("East","Ballygomartin B"),
-        ("Ballygomartin A","Premier"),
-        ("QE2 A","Shorts"),
-        ("QE2 B","Ballygomartin C")
+    {"week": 13, "date": "11/12/2025", "matches": [
+        "East v Ballygomartin B",
+        "Ballygomartin A v Premier",
+        "QE2 A v Shorts",
+        "QE2 B v Ballygomartin C"
     ]},
-    {"week":14,"date":"2025-12-18","matches":[
-        ("Ballygomartin B","Premier"),
-        ("Shorts","Ballygomartin A"),
-        ("QE2 A","Ballygomartin C"),
-        ("East","QE2 B")
+    {"week": 14, "date": "18/12/2025", "matches": [
+        "Ballygomartin B v Premier",
+        "Shorts v Ballygomartin A",
+        "QE2 A v Ballygomartin C",
+        "East v QE2 B"
     ]},
-    {"week":15,"date":"2026-02-05","matches":[
-        ("Ballygomartin B","Ballygomartin A"),
-        ("QE2 A","QE2 B"),
-        ("Shorts","Ballygomartin C"),
-        ("East","Premier")
+    {"week": 15, "date": "05/02/2026", "matches": [
+        "Ballygomartin B v Ballygomartin A",
+        "QE2 A v QE2 B",
+        "Shorts v Ballygomartin C",
+        "East v Premier"
     ]},
-    {"week":16,"date":"2026-02-12","matches":[
-        ("QE2 A","Ballygomartin B"),
-        ("Ballygomartin A","QE2 B"),
-        ("East","Shorts"),
-        ("Premier","Ballygomartin C")
+    {"week": 16, "date": "12/02/2026", "matches": [
+        "QE2 A v Ballygomartin B",
+        "Ballygomartin A v QE2 B",
+        "East v Shorts",
+        "Premier v Ballygomartin C"
     ]},
-    {"week":17,"date":"2026-02-19","matches":[
-        ("Ballygomartin B","QE2 B"),
-        ("QE2 A","Ballygomartin A"),
-        ("Premier","Shorts"),
-        ("Ballygomartin C","East")
+    {"week": 17, "date": "19/02/2026", "matches": [
+        "Ballygomartin B v QE2 B",
+        "QE2 A v Ballygomartin A",
+        "Premier v Shorts",
+        "Ballygomartin C v East"
     ]},
-    {"week":18,"date":"2026-02-26","matches":[
-        ("Shorts","Ballygomartin B"),
-        ("Ballygomartin A","Ballygomartin C"),
-        ("East","QE2 A"),
-        ("QE2 B","Premier")
+    {"week": 18, "date": "26/02/2026", "matches": [
+        "Shorts v Ballygomartin B",
+        "Ballygomartin A v Ballygomartin C",
+        "East v QE2 A",
+        "QE2 B v Premier"
     ]},
-    {"week":19,"date":"2026-03-05","matches":[
-        ("Ballygomartin C","Ballygomartin B"),
-        ("East","Ballygomartin A"),
-        ("QE2 A","Premier"),
-        ("Shorts","QE2 B")
+    {"week": 19, "date": "05/03/2026", "matches": [
+        "Ballygomartin C v Ballygomartin B",
+        "East v Ballygomartin A",
+        "QE2 A v Premier",
+        "Shorts v QE2 B"
     ]},
-    {"week":20,"date":"2026-03-12","matches":[
-        ("Ballygomartin B","East"),
-        ("Premier","Ballygomartin A"),
-        ("Shorts","QE2 A"),
-        ("Ballygomartin C","QE2 B")
+    {"week": 20, "date": "12/03/2026", "matches": [
+        "Ballygomartin B v East",
+        "Premier v Ballygomartin A",
+        "Shorts v QE2 A",
+        "Ballygomartin C v QE2 B"
     ]},
-    {"week":21,"date":"2026-03-19","matches":[
-        ("Premier","Ballygomartin B"),
-        ("Ballygomartin A","Shorts"),
-        ("Ballygomartin C","QE2 A"),
-        ("QE2 B","East")
+    {"week": 21, "date": "19/03/2026", "matches": [
+        "Premier v Ballygomartin B",
+        "Ballygomartin A v Shorts",
+        "Ballygomartin C v QE2 A",
+        "QE2 B v East"
     ]},
-    {"week":22,"date":"2026-03-26","matches":[
-        ("Ballygomartin A","Ballygomartin B"),
-        ("QE2 B","QE2 A"),
-        ("Ballygomartin C","Shorts"),
-        ("Premier","East")
+    {"week": 22, "date": "26/03/2026", "matches": [
+        "Ballygomartin A v Ballygomartin B",
+        "QE2 B v QE2 A",
+        "Ballygomartin C v Shorts",
+        "Premier v East"
     ]},
-    {"week":23,"date":"2026-04-02","matches":[
-        ("Ballygomartin B","QE2 A"),
-        ("QE2 B","Ballygomartin A"),
-        ("Shorts","East"),
-        ("Ballygomartin C","Premier")
+    {"week": 23, "date": "02/04/2026", "matches": [
+        "Ballygomartin B v QE2 A",
+        "QE2 B v Ballygomartin A",
+        "Shorts v East",
+        "Ballygomartin C v Premier"
     ]},
-    {"week":24,"date":"2026-04-09","matches":[
-        ("QE2 B","Ballygomartin B"),
-        ("Ballygomartin A","QE2 A"),
-        ("Shorts","Premier"),
-        ("East","Ballygomartin C")
+    {"week": 24, "date": "09/04/2026", "matches": [
+        "QE2 B v Ballygomartin B",
+        "Ballygomartin A v QE2 A",
+        "Shorts v Premier",
+        "East v Ballygomartin C"
     ]},
-    {"week":25,"date":"2026-04-16","matches":[
-        ("Ballygomartin B","Shorts"),
-        ("Ballygomartin C","Ballygomartin A"),
-        ("QE2 A","East"),
-        ("Premier","QE2 B")
+    {"week": 25, "date": "16/04/2026", "matches": [
+        "Ballygomartin B v Shorts",
+        "Ballygomartin C v Ballygomartin A",
+        "QE2 A v East",
+        "Premier v QE2 B"
     ]},
-    {"week":26,"date":"2026-04-23","matches":[
-        ("Ballygomartin B","Ballygomartin C"),
-        ("Ballygomartin A","East"),
-        ("Premier","QE2 A"),
-        ("QE2 B","Shorts")
+    {"week": 26, "date": "23/04/2026", "matches": [
+        "Ballygomartin B v Ballygomartin C",
+        "Ballygomartin A v East",
+        "Premier v QE2 A",
+        "QE2 B v Shorts"
     ]},
-    {"week":27,"date":"2026-04-30","matches":[
-        ("East","Ballygomartin B"),
-        ("Ballygomartin A","Premier"),
-        ("QE2 A","Shorts"),
-        ("QE2 B","Ballygomartin C")
+    {"week": 27, "date": "30/04/2026", "matches": [
+        "East v Ballygomartin B",
+        "Ballygomartin A v Premier",
+        "QE2 A v Shorts",
+        "QE2 B v Ballygomartin C"
     ]},
-    {"week":28,"date":"2026-05-07","matches":[
-        ("Ballygomartin B","Premier"),
-        ("Shorts","Ballygomartin A"),
-        ("QE2 A","Ballygomartin C"),
-        ("East","QE2 B")
+    {"week": 28, "date": "07/05/2026", "matches": [
+        "Ballygomartin B v Premier",
+        "Shorts v Ballygomartin A",
+        "QE2 A v Ballygomartin C",
+        "East v QE2 B"
     ]},
 ]
 
@@ -267,32 +267,15 @@ with tab_record:
                         st.experimental_rerun()
         else: st.caption("Add players first.")
 
-
 # ---------------- Fixtures ----------------
 with tab_fix:
-    st.subheader("League Fixtures by Team")
-    # Build week selector
-    wk_labels = [f"Week {d['week']:02d} ({d['date']})" for d in FIXTURES]
-    wk_idx = st.selectbox("Select week", options=list(range(len(FIXTURES))), format_func=lambda i: wk_labels[i])
-    sel_week = FIXTURES[wk_idx]
-
-    # Build per-team view
-    rows = []
-    for home, away in sel_week["matches"]:
-        rows.append({"Team": home, "Opponent": away, "Home/Away": "Home", "Fixture": f"{home} v {away}", "Date": sel_week["date"]})
-        rows.append({"Team": away, "Opponent": home, "Home/Away": "Away", "Fixture": f"{home} v {away}", "Date": sel_week["date"]})
-
-    df_fx = pd.DataFrame(rows)
-    # Ensure teams shown in consistent order
-    df_fx["Team"] = pd.Categorical(df_fx["Team"], categories=TEAMS, ordered=True)
-    df_fx = df_fx.sort_values(["Team","Home/Away"]).reset_index(drop=True)
-
-    # Optional team filter for quick lookup
-    team_pick = st.selectbox("Filter by team (optional)", ["All"] + TEAMS)
-    if team_pick != "All":
-        df_fx = df_fx[df_fx["Team"] == team_pick]
-
-    st.dataframe(df_fx, use_container_width=True)
+    st.subheader("League Fixtures")
+    week_labels = [f"Week {f['week']:02d} ({f['date']})" for f in FIXTURES]
+    wk = st.selectbox("Select Week", options=range(len(FIXTURES)), format_func=lambda i: week_labels[i])
+    chosen = FIXTURES[wk]
+    st.write(f"### Week {chosen['week']} – {chosen['date']}")
+    for m in chosen["matches"]:
+        st.write("• " + m)
 
 # ---------------- Announcements ----------------
 with tab_ann:
